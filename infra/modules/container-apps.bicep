@@ -29,6 +29,14 @@ param storageAccountName string
 @description('GroupMe Bot ID secret.')
 param groupmeBotId string
 
+@secure()
+@description('Secret token for webhook URL path.')
+param webhookSecret string
+
+@secure()
+@description('Access key for web UI authentication.')
+param webAccessKey string
+
 resource environment 'Microsoft.App/managedEnvironments@2024-03-01' = {
   name: environmentName
   location: location
@@ -84,6 +92,14 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
           name: 'groupme-bot-id'
           value: groupmeBotId
         }
+        {
+          name: 'webhook-secret'
+          value: webhookSecret
+        }
+        {
+          name: 'web-access-key'
+          value: webAccessKey
+        }
       ]
     }
     template: {
@@ -123,6 +139,14 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             {
               name: 'BOT_TRIGGER_KEYWORD'
               value: '@sensei'
+            }
+            {
+              name: 'WEBHOOK_SECRET'
+              secretRef: 'webhook-secret'
+            }
+            {
+              name: 'WEB_ACCESS_KEY'
+              secretRef: 'web-access-key'
             }
           ]
           probes: [

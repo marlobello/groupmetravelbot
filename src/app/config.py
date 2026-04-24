@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     groupme_bot_id: str
     bot_trigger_keyword: str = "@sensei"
     azure_client_id: str | None = None
+    webhook_secret: str = ""
+    web_access_key: str = ""
 
 
 @lru_cache

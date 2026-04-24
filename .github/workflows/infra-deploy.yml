@@ -43,6 +43,8 @@ jobs:
           parameters: >
             environmentName=${{ env.ENVIRONMENT_NAME }}
             groupmeBotId=${{ secrets.GROUPME_BOT_ID }}
+            webhookSecret=${{ secrets.WEBHOOK_SECRET }}
+            webAccessKey=${{ secrets.WEB_ACCESS_KEY }}
 
   deploy-app:
     needs: deploy-infra

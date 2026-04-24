@@ -8,6 +8,14 @@ param environmentName string
 @description('GroupMe Bot ID for the travel bot.')
 param groupmeBotId string
 
+@secure()
+@description('Secret token for webhook URL path.')
+param webhookSecret string
+
+@secure()
+@description('Access key for web UI authentication.')
+param webAccessKey string
+
 @description('GHCR container image reference (set by CI/CD). Public GHCR image — no credentials needed.')
 param containerImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
 
@@ -58,6 +66,8 @@ module containerApps 'modules/container-apps.bicep' = {
     openaiEndpoint: openai.outputs.openaiEndpoint
     storageAccountName: storage.outputs.storageAccountName
     groupmeBotId: groupmeBotId
+    webhookSecret: webhookSecret
+    webAccessKey: webAccessKey
     customDomainName: customDomainName
   }
 }

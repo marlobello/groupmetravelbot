@@ -3,15 +3,22 @@
 from __future__ import annotations
 
 import logging
+import secrets
 
 import markdown
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.services import storage
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+limiter = Limiter(key_func=get_remote_address)
+
+AUTH_COOKIE_NAME = "sensei_access"
+AUTH_COOKIE_MAX_AGE = 60 * 60 * 24 * 30  # 30 days
 
 # Tabs in display order: label → filename
 TABS = [
@@ -76,6 +83,39 @@ document.querySelectorAll('.tab').forEach(tab => {
 md = markdown.Markdown(extensions=["tables", "fenced_code", "nl2br"])
 
 
+def _check_web_auth(request: Request) -> Response | None:
+    """Return an error response if auth fails, or None if auth passes."""
+    access_key = request.app.state.settings.web_access_key
+    if not access_key:
+        return None  # auth disabled
+
+    # Check query param first — allows setting the cookie
+    key_param = request.query_params.get("key", "")
+    if key_param and secrets.compare_digest(key_param, access_key):
+        # Redirect to strip key from URL and set cookie
+        clean_url = str(request.url).split("?")[0]
+        response = RedirectResponse(url=clean_url, status_code=302)
+        response.set_cookie(
+            AUTH_COOKIE_NAME,
+            access_key,
+            max_age=AUTH_COOKIE_MAX_AGE,
+            httponly=True,
+            samesite="lax",
+            secure=True,
+        )
+        return response
+
+    # Check cookie
+    cookie_val = request.cookies.get(AUTH_COOKIE_NAME, "")
+    if cookie_val and secrets.compare_digest(cookie_val, access_key):
+        return None  # authorized
+
+    return HTMLResponse(
+        "<h1>403 Forbidden</h1><p>Access denied. Append ?key=YOUR_KEY to the URL.</p>",
+        status_code=403,
+    )
+
+
 def _render_page(title: str, subtitle: str, body: str) -> str:
     return f"""<!DOCTYPE html>
 <html lang="en"><head>
@@ -90,8 +130,13 @@ def _render_page(title: str, subtitle: str, body: str) -> str:
 
 
 @router.get("/trips", response_class=HTMLResponse)
+@limiter.limit("60/minute")
 async def list_trips(request: Request):
     """List all groups that have an active trip."""
+    auth_response = _check_web_auth(request)
+    if auth_response is not None:
+        return auth_response
+
     container = request.app.state.blob_container
     groups: list[dict] = []
 
@@ -127,8 +172,13 @@ async def list_trips(request: Request):
 
 
 @router.get("/trips/{group_id}", response_class=HTMLResponse)
+@limiter.limit("60/minute")
 async def view_trip(group_id: str, request: Request):
     """Render the active trip's markdown documents as a tabbed HTML page."""
+    auth_response = _check_web_auth(request)
+    if auth_response is not None:
+        return auth_response
+
     container = request.app.state.blob_container
 
     active = await storage.get_active_trip(container, group_id)

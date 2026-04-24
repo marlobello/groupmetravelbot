@@ -15,6 +15,8 @@ from app.main import app
 def mock_app_state():
     settings = MagicMock()
     settings.bot_trigger_keyword = "@sensei"
+    settings.webhook_secret = "test-secret"
+    settings.web_access_key = ""  # auth disabled by default in tests
     app.state.settings = settings
     # Use MagicMock (not AsyncMock) — get_blob_client and list_blobs are sync
     app.state.blob_container = MagicMock()
@@ -165,3 +167,49 @@ async def _empty_async_iter():
 async def _async_iter(items):
     for item in items:
         yield item
+
+
+# ── Web auth tests ────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_web_auth_rejects_without_key(client, mock_app_state):
+    """When web_access_key is set, requests without key get 403."""
+    mock_app_state.web_access_key = "my-secret-key"
+    container = app.state.blob_container
+    container.list_blobs.return_value = _empty_async_iter()
+
+    resp = await client.get("/trips")
+    assert resp.status_code == 403
+    assert "Access denied" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_web_auth_accepts_valid_key(client, mock_app_state):
+    """Valid ?key= param redirects and sets cookie."""
+    mock_app_state.web_access_key = "my-secret-key"
+
+    resp = await client.get("/trips?key=my-secret-key", follow_redirects=False)
+    assert resp.status_code == 302
+    assert resp.headers["location"] == "http://test/trips"
+    assert "sensei_access" in resp.headers.get("set-cookie", "")
+
+
+@pytest.mark.asyncio
+async def test_web_auth_rejects_wrong_key(client, mock_app_state):
+    """Wrong ?key= param still gets 403."""
+    mock_app_state.web_access_key = "my-secret-key"
+
+    resp = await client.get("/trips?key=wrong-key")
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_web_auth_accepts_valid_cookie(client, mock_app_state):
+    """Valid cookie passes auth."""
+    mock_app_state.web_access_key = "my-secret-key"
+    container = app.state.blob_container
+    container.list_blobs.return_value = _empty_async_iter()
+
+    resp = await client.get("/trips", cookies={"sensei_access": "my-secret-key"})
+    assert resp.status_code == 200
