@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     storage_account_name: str
     storage_container_name: str = "itineraries"
     groupme_bot_id: str
-    bot_trigger_keyword: str = "@tripbot"
+    bot_trigger_keyword: str = "@sensei"
     azure_client_id: str | None = None
 
 
