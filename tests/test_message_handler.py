@@ -57,9 +57,7 @@ async def test_basic_query_flow(mock_storage, mock_llm, mock_groupme):
     lock.__aexit__ = AsyncMock(return_value=False)
     mock_storage._get_group_lock = MagicMock(return_value=lock)
 
-    mock_llm.get_response = AsyncMock(
-        return_value={"message": "Rome has tons to see! 🏛️"}
-    )
+    mock_llm.get_response = AsyncMock(return_value={"message": "Rome has tons to see! 🏛️"})
     mock_groupme.send_message = AsyncMock()
 
     await handle_message(_make_message(), AsyncMock(), AsyncMock(), _make_settings())

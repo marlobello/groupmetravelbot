@@ -10,6 +10,7 @@ from app.services import storage
 
 # ── get_active_trip ───────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_get_active_trip_found():
     pointer = {"trip_id": "abc-123", "trip_name": "Rome 2025"}
@@ -40,6 +41,7 @@ async def test_get_active_trip_not_found():
 
 # ── create_trip ───────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_create_trip():
     blob_clients = {}
@@ -69,6 +71,7 @@ async def test_create_trip():
 
 # ── archive_trip ──────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_archive_trip():
     blob_client = AsyncMock()
@@ -91,6 +94,7 @@ async def test_archive_trip_no_active():
 
 
 # ── read_trip_files ───────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_read_trip_files():
@@ -121,6 +125,7 @@ async def test_read_trip_files():
 @pytest.mark.asyncio
 async def test_read_trip_files_missing_file():
     """Missing files should return empty string, not raise."""
+
     def mock_get_blob(path):
         client = AsyncMock()
         client.download_blob = AsyncMock(side_effect=ResourceNotFoundError("Not found"))
@@ -134,6 +139,7 @@ async def test_read_trip_files_missing_file():
 
 
 # ── write_trip_file ───────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_write_trip_file():
@@ -156,6 +162,7 @@ async def test_write_trip_file_invalid_name():
 
 
 # ── idempotency ───────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_check_message_processed_true():
@@ -191,6 +198,7 @@ async def test_mark_message_processed():
 
 
 # ── group_lock ────────────────────────────────────────────────────────
+
 
 def test_get_group_lock_returns_same_lock():
     storage._group_locks.clear()

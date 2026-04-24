@@ -210,4 +210,5 @@ def _get_token_provider(credential: DefaultAzureCredential):
     async def provider():
         token = await credential.get_token("https://cognitiveservices.azure.com/.default")
         return token.token
+
     return provider

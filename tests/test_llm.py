@@ -15,29 +15,33 @@ class TestParseResponse:
         assert "file_updates" not in result
 
     def test_valid_with_file_updates(self):
-        raw = json.dumps({
-            "message": "Updated brainstorming!",
-            "file_updates": {
-                "brainstorming.md": "# Ideas\n- Colosseum",
-                "trip.md": None,
-                "planning.md": None,
-                "itinerary.md": None,
-            },
-        })
+        raw = json.dumps(
+            {
+                "message": "Updated brainstorming!",
+                "file_updates": {
+                    "brainstorming.md": "# Ideas\n- Colosseum",
+                    "trip.md": None,
+                    "planning.md": None,
+                    "itinerary.md": None,
+                },
+            }
+        )
         result = _parse_response(raw)
         assert result["message"] == "Updated brainstorming!"
         assert result["file_updates"] == {"brainstorming.md": "# Ideas\n- Colosseum"}
 
     def test_all_null_file_updates_excluded(self):
-        raw = json.dumps({
-            "message": "No changes needed.",
-            "file_updates": {
-                "brainstorming.md": None,
-                "trip.md": None,
-                "planning.md": None,
-                "itinerary.md": None,
-            },
-        })
+        raw = json.dumps(
+            {
+                "message": "No changes needed.",
+                "file_updates": {
+                    "brainstorming.md": None,
+                    "trip.md": None,
+                    "planning.md": None,
+                    "itinerary.md": None,
+                },
+            }
+        )
         result = _parse_response(raw)
         assert "file_updates" not in result
 
@@ -53,14 +57,16 @@ class TestParseResponse:
         assert result["archive_trip"] is True
 
     def test_unknown_filename_rejected(self):
-        raw = json.dumps({
-            "message": "ok",
-            "file_updates": {
-                "brainstorming.md": "# Ideas",
-                "evil.md": "hacked!",
-                "../../etc/passwd": "root",
-            },
-        })
+        raw = json.dumps(
+            {
+                "message": "ok",
+                "file_updates": {
+                    "brainstorming.md": "# Ideas",
+                    "evil.md": "hacked!",
+                    "../../etc/passwd": "root",
+                },
+            }
+        )
         result = _parse_response(raw)
         assert result["file_updates"] == {"brainstorming.md": "# Ideas"}
 
@@ -88,15 +94,17 @@ class TestParseResponse:
         assert result["file_updates"] == {"trip.md": "# Trip"}
 
     def test_multiple_file_updates(self):
-        raw = json.dumps({
-            "message": "Updated both!",
-            "file_updates": {
-                "brainstorming.md": "# Brain",
-                "planning.md": "# Plan",
-                "trip.md": None,
-                "itinerary.md": None,
-            },
-        })
+        raw = json.dumps(
+            {
+                "message": "Updated both!",
+                "file_updates": {
+                    "brainstorming.md": "# Brain",
+                    "planning.md": "# Plan",
+                    "trip.md": None,
+                    "itinerary.md": None,
+                },
+            }
+        )
         result = _parse_response(raw)
         assert len(result["file_updates"]) == 2
         assert "brainstorming.md" in result["file_updates"]

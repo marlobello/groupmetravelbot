@@ -34,9 +34,8 @@ def _get_group_lock(group_id: str) -> asyncio.Lock:
 
 # ── Trip lifecycle ─────────────────────────────────────────────────────
 
-async def get_active_trip(
-    container: ContainerClient, group_id: str
-) -> dict | None:
+
+async def get_active_trip(container: ContainerClient, group_id: str) -> dict | None:
     """Return {trip_id, trip_name} for the group's active trip, or None."""
     blob = container.get_blob_client(f"trips/{group_id}/active_trip.json")
     try:
@@ -47,9 +46,7 @@ async def get_active_trip(
         return None
 
 
-async def create_trip(
-    container: ContainerClient, group_id: str, name: str
-) -> dict:
+async def create_trip(container: ContainerClient, group_id: str, name: str) -> dict:
     """Create a new trip folder with template files and set it as active."""
     trip_id = str(uuid4())
     prefix = f"trips/{group_id}/{trip_id}"
@@ -61,12 +58,10 @@ async def create_trip(
             "destination, participants, budget._\n"
         ),
         "brainstorming.md": (
-            f"# {name} — Brainstorming\n\n"
-            "_Ideas, wish-list items, and suggestions go here._\n"
+            f"# {name} — Brainstorming\n\n_Ideas, wish-list items, and suggestions go here._\n"
         ),
         "planning.md": (
-            f"# {name} — Planning\n\n"
-            "_Agreed-upon plans that aren't yet booked go here._\n"
+            f"# {name} — Planning\n\n_Agreed-upon plans that aren't yet booked go here._\n"
         ),
         "itinerary.md": (
             f"# {name} — Itinerary\n\n"
@@ -85,9 +80,7 @@ async def create_trip(
     return pointer
 
 
-async def archive_trip(
-    container: ContainerClient, group_id: str
-) -> None:
+async def archive_trip(container: ContainerClient, group_id: str) -> None:
     """Remove the active trip pointer (files remain for history)."""
     blob = container.get_blob_client(f"trips/{group_id}/active_trip.json")
     try:
@@ -97,6 +90,7 @@ async def archive_trip(
 
 
 # ── Read / write trip documents ───────────────────────────────────────
+
 
 async def read_trip_files(
     container: ContainerClient, group_id: str, trip_id: str
@@ -131,6 +125,7 @@ async def write_trip_file(
 
 # ── Idempotency ───────────────────────────────────────────────────────
 
+
 async def check_message_processed(
     container: ContainerClient, group_id: str, message_id: str
 ) -> bool:
@@ -147,4 +142,3 @@ async def mark_message_processed(
 ) -> None:
     blob = container.get_blob_client(f"processed/{group_id}/msg-{message_id}")
     await blob.upload_blob(b"1", overwrite=True)
-
