@@ -12,9 +12,9 @@ from app.main import app
 def mock_app_state():
     """Set up mock app state for testing."""
     settings = MagicMock()
-    settings.bot_trigger_keyword = "@tripbot"
+    settings.bot_trigger_keyword = "@sensei"
     app.state.settings = settings
-    app.state.cosmos_container = AsyncMock()
+    app.state.blob_container = AsyncMock()
     app.state.credential = AsyncMock()
     return settings
 
@@ -40,8 +40,8 @@ async def test_bot_message_ignored(client, mock_app_state):
         "group_id": "g1",
         "sender_id": "bot1",
         "sender_type": "bot",
-        "name": "TripBot",
-        "text": "@tripbot hello",
+        "name": "Sensei",
+        "text": "@sensei hello",
         "created_at": 1700000000,
     }
     response = await client.post("/webhook", json=payload)
@@ -74,7 +74,7 @@ async def test_triggered_message_returns_processing(mock_handle, client, mock_ap
         "sender_id": "u1",
         "sender_type": "user",
         "name": "Alice",
-        "text": "Hey @tripbot plan a trip",
+        "text": "Hey @sensei plan a trip",
         "created_at": 1700000000,
     }
     response = await client.post("/webhook", json=payload)

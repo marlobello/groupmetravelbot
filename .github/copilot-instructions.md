@@ -2,27 +2,47 @@
 
 ## Project Overview
 
-GroupMe Travel Bot — a Python FastAPI application that lives in a GroupMe group chat and helps members collaboratively plan vacations. It uses Azure OpenAI for natural language understanding and Cosmos DB for persistent trip storage.
+GroupMe Travel Bot ("Sensei") — a Python FastAPI application that lives in a GroupMe group chat and helps members collaboratively plan vacations. It uses Azure OpenAI as the primary intelligence layer and Azure Blob Storage for persistent markdown-based trip documents.
 
 ## Architecture
 
-GroupMe sends webhook POSTs → Azure Container Apps (FastAPI/Python) → processes via Azure OpenAI → stores in Cosmos DB → replies via GroupMe Bot API.
+GroupMe webhook POST → Azure Container Apps (FastAPI/Python) → read trip docs from Blob Storage → send to Azure OpenAI with full context → LLM returns chat reply + file updates → write updated docs back → reply via GroupMe Bot API.
+
+**Design philosophy**: The LLM does the heavy lifting (conversation, research, document editing). Python is a thin facilitator for I/O.
 
 Key components in `src/app/`:
 - **routers/webhook.py**: Receives GroupMe callbacks, returns 200 immediately, processes in background
-- **services/message_handler.py**: Orchestrates the full message pipeline (idempotency check → load context → LLM → execute action → respond)
-- **services/llm.py**: Azure OpenAI integration; LLM classifies intent and returns structured JSON (`BotAction`) which is validated via Pydantic before execution
-- **services/storage.py**: Cosmos DB CRUD with optimistic concurrency (ETags) and message deduplication (TTL-based)
-- **services/itinerary.py**: Generates plain-text summaries and PDF itineraries (WeasyPrint + Jinja2 → Blob Storage SAS URL)
+- **services/message_handler.py**: Thin orchestrator (~90 lines) — idempotency check → read blobs → LLM → write file updates → send reply
+- **services/llm.py**: Azure OpenAI integration; LLM receives all 4 trip documents as context and returns JSON with chat message + optional file updates
+- **services/storage.py**: Azure Blob Storage I/O for markdown trip documents with per-group async locks for concurrency
 - **services/groupme.py**: GroupMe Bot API client with message splitting (1000-char limit)
 
 ## Data Model
 
-Single Cosmos DB container `trips` partitioned by `/groupId`. Two document types distinguished by `type` field:
-- **Trip**: `{groupId, type:"trip", name, status}` — one active trip per group
-- **TripItem**: `{groupId, type:"item", tripId, stage, category, title, details, addedBy}` — items flow through stages: brainstorming → planning → finalized
+Each group's trip data lives in Azure Blob Storage as markdown files:
 
-All models use Pydantic with `by_alias=True` serialization for camelCase Cosmos fields.
+```
+trips/{group_id}/active_trip.json          — pointer to current trip
+trips/{group_id}/{trip_id}/trip.md          — trip name, dates, participants, details
+trips/{group_id}/{trip_id}/brainstorming.md — ideas and wish-list items
+trips/{group_id}/{trip_id}/planning.md      — agreed plans (not yet booked)
+trips/{group_id}/{trip_id}/itinerary.md     — confirmed plans with reservations
+```
+
+Idempotency markers: `processed/{group_id}/msg-{id}` blobs (auto-cleaned by lifecycle policy).
+
+## LLM Response Format
+
+The LLM always returns JSON:
+```json
+{
+  "message": "Chat reply for the group",
+  "file_updates": {"brainstorming.md": "# Full updated content...", "trip.md": null, ...}
+}
+```
+- `null` = no change to that file
+- File updates contain **complete** file content (not diffs)
+- Special lifecycle: `"new_trip": "name"` or `"archive_trip": true`
 
 ## Build, Test, and Lint
 
@@ -38,10 +58,7 @@ ruff format --check src/ tests/
 pytest tests/ -q
 
 # Run a single test file
-pytest tests/test_models.py -q
-
-# Run a single test
-pytest tests/test_models.py::test_trip_creation -q
+pytest tests/test_storage.py -q
 
 # Auto-format
 ruff format src/ tests/
@@ -59,13 +76,14 @@ All Azure resources are defined in Bicep (`infra/`) — never create or modify r
 az deployment group create -g <resource-group> -f infra/main.bicep -p environmentName=travelbot groupmeBotId=<bot-id>
 ```
 
-Modules: identity, cosmos-db, openai, container-registry, storage, container-apps. All services use managed identity auth (no connection strings).
+Modules: identity, openai, storage, container-apps. All services use managed identity auth (no connection strings). Blob Storage has versioning and soft delete enabled for document safety.
 
 ## Key Conventions
 
-- **Async everywhere**: All service functions are async. Use `azure.cosmos.aio` and `azure.identity.aio`.
+- **Async everywhere**: All service functions are async. Use `azure.storage.blob.aio` and `azure.identity.aio`.
 - **Background processing**: Webhook returns 200 immediately; work happens in `BackgroundTasks`.
-- **Structured LLM output**: LLM returns JSON matching `BotAction` schema; always validate with Pydantic before executing.
-- **Optimistic concurrency**: Use Cosmos ETags (`if_match`) on all replace/update operations.
-- **Idempotency**: Track processed message IDs in Cosmos with 24-hour TTL.
+- **LLM-first**: The LLM reads and writes trip documents directly. Python handles I/O only.
+- **Concurrency**: Per-group `asyncio.Lock` serialises writes within the same replica. Blob versioning provides rollback safety.
+- **Idempotency**: Persistent blob-based markers (`processed/` prefix) with lifecycle auto-cleanup.
 - **No secrets in code**: All config via environment variables or managed identity. See `.env.example`.
+- **Filename whitelist**: Only 4 valid filenames accepted for writes: `trip.md`, `brainstorming.md`, `planning.md`, `itinerary.md`.

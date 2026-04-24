@@ -22,16 +22,6 @@ module identity 'modules/identity.bicep' = {
   }
 }
 
-// ─── Cosmos DB ───────────────────────────────────────────────────────
-module cosmosDb 'modules/cosmos-db.bicep' = {
-  name: 'cosmos-db'
-  params: {
-    location: location
-    cosmosAccountName: '${environmentName}-cosmos-${resourceToken}'
-    managedIdentityPrincipalId: identity.outputs.managedIdentityPrincipalId
-  }
-}
-
 // ─── Azure OpenAI ────────────────────────────────────────────────────
 module openai 'modules/openai.bicep' = {
   name: 'openai'
@@ -62,7 +52,6 @@ module containerApps 'modules/container-apps.bicep' = {
     containerImage: containerImage
     managedIdentityId: identity.outputs.managedIdentityId
     managedIdentityClientId: identity.outputs.managedIdentityClientId
-    cosmosEndpoint: cosmosDb.outputs.cosmosEndpoint
     openaiEndpoint: openai.outputs.openaiEndpoint
     storageAccountName: storage.outputs.storageAccountName
     groupmeBotId: groupmeBotId
@@ -78,9 +67,6 @@ output containerAppName string = '${environmentName}-app-${resourceToken}'
 
 @description('Name of the resource group-scoped Bicep deployment (used by CI/CD to query outputs).')
 output deploymentName string = deployment().name
-
-@description('Cosmos DB account endpoint.')
-output cosmosEndpoint string = cosmosDb.outputs.cosmosEndpoint
 
 @description('Azure OpenAI account endpoint.')
 output openaiEndpoint string = openai.outputs.openaiEndpoint

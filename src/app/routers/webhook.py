@@ -39,7 +39,7 @@ async def groupme_callback(
     background_tasks.add_task(
         handle_message,
         message=message,
-        cosmos_container=request.app.state.cosmos_container,
+        blob_container=request.app.state.blob_container,
         credential=request.app.state.credential,
         settings=settings,
     )

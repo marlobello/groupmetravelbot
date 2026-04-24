@@ -3,8 +3,8 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from azure.cosmos.aio import CosmosClient
 from azure.identity.aio import DefaultAzureCredential
+from azure.storage.blob.aio import BlobServiceClient
 from fastapi import FastAPI
 
 from app.config import get_settings
@@ -17,17 +17,17 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(messag
 async def lifespan(app: FastAPI):
     settings = get_settings()
     credential = DefaultAzureCredential(managed_identity_client_id=settings.azure_client_id)
-    cosmos_client = CosmosClient(settings.cosmos_endpoint, credential=credential)
-    database = cosmos_client.get_database_client("travelbot")
-    container = database.get_container_client("trips")
+    blob_url = f"https://{settings.storage_account_name}.blob.core.windows.net"
+    blob_service = BlobServiceClient(blob_url, credential=credential)
+    blob_container = blob_service.get_container_client(settings.storage_container_name)
 
-    app.state.cosmos_container = container
+    app.state.blob_container = blob_container
     app.state.credential = credential
     app.state.settings = settings
 
     yield
 
-    await cosmos_client.close()
+    await blob_service.close()
     await credential.close()
 
 

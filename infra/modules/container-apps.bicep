@@ -16,9 +16,6 @@ param managedIdentityId string
 @description('Client ID of the user-assigned managed identity.')
 param managedIdentityClientId string
 
-@description('Cosmos DB account endpoint.')
-param cosmosEndpoint string
-
 @description('Azure OpenAI account endpoint.')
 param openaiEndpoint string
 
@@ -84,10 +81,6 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
               value: managedIdentityClientId
             }
             {
-              name: 'COSMOS_ENDPOINT'
-              value: cosmosEndpoint
-            }
-            {
               name: 'AZURE_OPENAI_ENDPOINT'
               value: openaiEndpoint
             }
@@ -101,7 +94,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             }
             {
               name: 'STORAGE_CONTAINER_NAME'
-              value: 'itineraries'
+              value: 'trips'
             }
             {
               name: 'GROUPME_BOT_ID'

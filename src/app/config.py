@@ -8,11 +8,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env")
 
-    cosmos_endpoint: str
     azure_openai_endpoint: str
     azure_openai_deployment: str = "gpt-4o"
     storage_account_name: str
-    storage_container_name: str = "itineraries"
+    storage_container_name: str = "trips"
     groupme_bot_id: str
     bot_trigger_keyword: str = "@sensei"
     azure_client_id: str | None = None

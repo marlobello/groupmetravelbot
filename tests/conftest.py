@@ -4,41 +4,20 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.models.trip import Category, Stage, Trip, TripItem
-
 
 @pytest.fixture
-def sample_trip():
-    return Trip(groupId="group-123", name="Test Trip")
-
-
-@pytest.fixture
-def sample_items(sample_trip):
-    return [
-        TripItem(
-            groupId="group-123",
-            tripId=sample_trip.id,
-            stage=Stage.BRAINSTORMING,
-            category=Category.LODGING,
-            title="Beach Hotel",
-            details={"notes": "Looks nice"},
-            addedBy="Alice",
+def sample_trip_files():
+    return {
+        "trip.md": "# Rome 2025\n\n**Status:** Active\n\n## Details\n\nJune 15-20, 2025\n",
+        "brainstorming.md": "# Rome 2025 — Brainstorming\n\n- Colosseum tour\n- Try Roman pizza\n",
+        "planning.md": (
+            "# Rome 2025 — Planning\n\n"
+            "## Activities\n- Colosseum: open 8:30am-7pm, €16\n"
         ),
-        TripItem(
-            groupId="group-123",
-            tripId=sample_trip.id,
-            stage=Stage.FINALIZED,
-            category=Category.TRANSPORT,
-            title="Flight to Cancun",
-            details={
-                "notes": "Direct flight",
-                "booking": {"confirmation_number": "ABC123"},
-            },
-            addedBy="Bob",
-        ),
-    ]
+        "itinerary.md": "# Rome 2025 — Itinerary\n\n_No confirmed plans yet._\n",
+    }
 
 
 @pytest.fixture
-def mock_cosmos_container():
+def mock_blob_container():
     return AsyncMock()
