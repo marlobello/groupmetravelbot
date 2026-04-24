@@ -8,7 +8,7 @@ from azure.storage.blob.aio import BlobServiceClient
 from fastapi import FastAPI
 
 from app.config import get_settings
-from app.routers import webhook
+from app.routers import web, webhook
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
@@ -33,3 +33,4 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="GroupMe Travel Bot", lifespan=lifespan)
 app.include_router(webhook.router)
+app.include_router(web.router)
