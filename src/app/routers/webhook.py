@@ -16,7 +16,7 @@ async def health():
     return {"status": "ok"}
 
 
-@router.post("/groupme/callback")
+@router.post("/webhook")
 async def groupme_callback(
     message: GroupMeMessage,
     request: Request,

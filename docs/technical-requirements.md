@@ -35,7 +35,7 @@
 ### 2.1 Webhook Receiver
 
 - **Framework**: FastAPI (latest stable)
-- **Endpoint**: `POST /groupme/callback` — receives GroupMe message payloads.
+- **Endpoint**: `POST /webhook` — receives GroupMe message payloads.
 - **Validation**: Verify payload structure; ignore messages sent by the bot itself (prevent loops).
 - **Health check**: `GET /health` for Container Apps probes.
 

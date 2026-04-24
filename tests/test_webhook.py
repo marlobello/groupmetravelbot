@@ -44,7 +44,7 @@ async def test_bot_message_ignored(client, mock_app_state):
         "text": "@tripbot hello",
         "created_at": 1700000000,
     }
-    response = await client.post("/groupme/callback", json=payload)
+    response = await client.post("/webhook", json=payload)
     assert response.status_code == 200
     assert response.json() == {"status": "ignored"}
 
@@ -60,7 +60,7 @@ async def test_non_triggered_message(client, mock_app_state):
         "text": "Just a regular message",
         "created_at": 1700000000,
     }
-    response = await client.post("/groupme/callback", json=payload)
+    response = await client.post("/webhook", json=payload)
     assert response.status_code == 200
     assert response.json() == {"status": "not_triggered"}
 
@@ -77,7 +77,7 @@ async def test_triggered_message_returns_processing(mock_handle, client, mock_ap
         "text": "Hey @tripbot plan a trip",
         "created_at": 1700000000,
     }
-    response = await client.post("/groupme/callback", json=payload)
+    response = await client.post("/webhook", json=payload)
     assert response.status_code == 200
     assert response.json() == {"status": "processing"}
 
@@ -93,6 +93,6 @@ async def test_message_with_no_text(client, mock_app_state):
         "text": None,
         "created_at": 1700000000,
     }
-    response = await client.post("/groupme/callback", json=payload)
+    response = await client.post("/webhook", json=payload)
     assert response.status_code == 200
     assert response.json() == {"status": "not_triggered"}
