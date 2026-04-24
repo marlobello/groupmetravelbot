@@ -11,6 +11,9 @@ param groupmeBotId string
 @description('GHCR container image reference (set by CI/CD). Public GHCR image — no credentials needed.')
 param containerImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
 
+@description('Custom domain hostname (e.g. sensei.dotheneedful.dev). Leave empty to skip.')
+param customDomainName string = 'sensei.dotheneedful.dev'
+
 var resourceToken = uniqueString(resourceGroup().id)
 
 // ─── Managed Identity ────────────────────────────────────────────────
@@ -55,6 +58,7 @@ module containerApps 'modules/container-apps.bicep' = {
     openaiEndpoint: openai.outputs.openaiEndpoint
     storageAccountName: storage.outputs.storageAccountName
     groupmeBotId: groupmeBotId
+    customDomainName: customDomainName
   }
 }
 

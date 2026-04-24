@@ -4,6 +4,9 @@ param location string
 @description('Name of the Container App.')
 param containerAppName string
 
+@description('Custom domain hostname (e.g. sensei.dotheneedful.dev). Leave empty to skip.')
+param customDomainName string = ''
+
 @description('Name of the Container Apps Environment.')
 param environmentName string
 
@@ -39,6 +42,16 @@ resource environment 'Microsoft.App/managedEnvironments@2024-03-01' = {
   }
 }
 
+resource managedCertificate 'Microsoft.App/managedEnvironments/managedCertificates@2024-03-01' = if (!empty(customDomainName)) {
+  parent: environment
+  name: 'cert-${replace(customDomainName, '.', '-')}'
+  location: location
+  properties: {
+    subjectName: customDomainName
+    domainControlValidation: 'CNAME'
+  }
+}
+
 resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: containerAppName
   location: location
@@ -58,6 +71,13 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
         targetPort: 8000
         transport: 'http'
         allowInsecure: false
+        customDomains: !empty(customDomainName) ? [
+          {
+            name: customDomainName
+            certificateId: managedCertificate.id
+            bindingType: 'SniEnabled'
+          }
+        ] : []
       }
       secrets: [
         {
