@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 
 from azure.cosmos.aio import CosmosClient
@@ -8,6 +9,8 @@ from fastapi import FastAPI
 
 from app.config import get_settings
 from app.routers import webhook
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 
 @asynccontextmanager

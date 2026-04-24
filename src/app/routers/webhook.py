@@ -22,6 +22,8 @@ async def groupme_callback(
     request: Request,
     background_tasks: BackgroundTasks,
 ):
+    logger.info("Webhook received: sender_type=%s, text=%r", message.sender_type, message.text)
+
     # Ignore bot messages to prevent loops
     if message.sender_type == "bot":
         return {"status": "ignored"}
@@ -29,8 +31,10 @@ async def groupme_callback(
     settings = request.app.state.settings
     # Check if bot is mentioned
     if not message.text or settings.bot_trigger_keyword.lower() not in message.text.lower():
+        logger.info("Not triggered (keyword=%s)", settings.bot_trigger_keyword)
         return {"status": "not_triggered"}
 
+    logger.info("Triggered! Processing message from %s", message.name)
     # Process in background — return 200 immediately
     background_tasks.add_task(
         handle_message,
