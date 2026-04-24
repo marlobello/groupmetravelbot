@@ -123,7 +123,142 @@ class TestBotAction:
         assert action.parameters["title"] == "Hotel"
 
 
-class TestEnums:
+class TestBotResponse:
+    def test_single_action_response(self):
+        from app.models.llm import BotResponse
+
+        resp = BotResponse(
+            actions=[BotAction(action=ActionType.ADD_ITEM, parameters={"title": "Hotel"})],
+            response_text="Added!",
+        )
+        assert len(resp.actions) == 1
+        assert resp.suggested_items == []
+
+    def test_multi_action_response(self):
+        from app.models.llm import BotResponse
+
+        resp = BotResponse(
+            actions=[
+                BotAction(action=ActionType.ADD_ITEM, parameters={"title": "Flight"}),
+                BotAction(action=ActionType.ADD_ITEM, parameters={"title": "Hotel"}),
+            ],
+            response_text="Added both!",
+        )
+        assert len(resp.actions) == 2
+
+    def test_with_suggested_items(self):
+        from app.models.llm import BotResponse, SuggestedItem
+
+        resp = BotResponse(
+            actions=[BotAction(action=ActionType.QUERY, parameters={})],
+            response_text="Here are ideas!",
+            suggested_items=[
+                SuggestedItem(title="Colosseum", category="activity", notes="Ancient arena"),
+            ],
+        )
+        assert len(resp.suggested_items) == 1
+        assert resp.suggested_items[0].title == "Colosseum"
+
+
+class TestSuggestedItem:
+    def test_defaults(self):
+        from app.models.llm import SuggestedItem
+
+        item = SuggestedItem(title="Test")
+        assert item.category == "other"
+        assert item.notes == ""
+
+
+class TestParseLlmResponse:
+    """Test the _parse_llm_response function."""
+
+    def test_single_action_format(self):
+        from app.services.llm import _parse_llm_response
+
+        data = {
+            "action": "add_item",
+            "parameters": {"title": "Hotel"},
+            "response_text": "Added!",
+        }
+        resp = _parse_llm_response(data)
+        assert len(resp.actions) == 1
+        assert resp.actions[0].action == ActionType.ADD_ITEM
+
+    def test_array_action_format(self):
+        from app.services.llm import _parse_llm_response
+
+        data = {
+            "actions": [
+                {"action": "add_item", "parameters": {"title": "Flight"}},
+                {"action": "add_item", "parameters": {"title": "Hotel"}},
+            ],
+            "response_text": "Added both!",
+        }
+        resp = _parse_llm_response(data)
+        assert len(resp.actions) == 2
+
+    def test_invalid_action_falls_back_to_clarify(self):
+        from app.services.llm import _parse_llm_response
+
+        data = {"action": "invalid_action", "response_text": "oops"}
+        resp = _parse_llm_response(data)
+        assert len(resp.actions) == 1
+        assert resp.actions[0].action == ActionType.CLARIFY
+
+    def test_suggested_items_parsed(self):
+        from app.services.llm import _parse_llm_response
+
+        data = {
+            "action": "query",
+            "parameters": {},
+            "response_text": "Here are ideas",
+            "suggested_items": [
+                {"title": "Colosseum", "category": "activity", "notes": "Must see"},
+                {"title": "Trevi Fountain", "category": "activity"},
+            ],
+        }
+        resp = _parse_llm_response(data)
+        assert len(resp.suggested_items) == 2
+        assert resp.suggested_items[0].notes == "Must see"
+        assert resp.suggested_items[1].notes == ""
+
+    def test_suggested_items_capped_at_3(self):
+        from app.services.llm import _parse_llm_response
+
+        data = {
+            "action": "query",
+            "parameters": {},
+            "response_text": "Ideas",
+            "suggested_items": [
+                {"title": f"Item {i}", "category": "activity"} for i in range(5)
+            ],
+        }
+        resp = _parse_llm_response(data)
+        assert len(resp.suggested_items) == 3
+
+    def test_malformed_suggested_items_skipped(self):
+        from app.services.llm import _parse_llm_response
+
+        data = {
+            "action": "query",
+            "parameters": {},
+            "response_text": "Ideas",
+            "suggested_items": [
+                {"title": "Valid", "category": "activity"},
+                {"no_title": "invalid"},
+                "not a dict",
+            ],
+        }
+        resp = _parse_llm_response(data)
+        assert len(resp.suggested_items) == 1
+
+    def test_empty_actions_array_falls_back(self):
+        from app.services.llm import _parse_llm_response
+
+        data = {"actions": [], "response_text": "Nothing"}
+        resp = _parse_llm_response(data)
+        assert len(resp.actions) == 1
+        assert resp.actions[0].action == ActionType.CLARIFY
     def test_stage_values(self):
         assert Stage.BRAINSTORMING == "brainstorming"
         assert Stage.PLANNING == "planning"

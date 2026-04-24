@@ -7,8 +7,8 @@ from azure.identity.aio import DefaultAzureCredential
 
 from app.config import Settings
 from app.models.groupme import GroupMeMessage
-from app.models.llm import ActionType
-from app.models.trip import Stage, TripItem
+from app.models.llm import ActionType, BotAction, BotResponse
+from app.models.trip import BookingDetails, ItemDetails, Stage, TripItem
 from app.services import groupme, itinerary, llm, storage
 
 logger = logging.getLogger(__name__)
@@ -38,8 +38,8 @@ async def handle_message(
             message.text.replace(settings.bot_trigger_keyword, "").strip() if message.text else ""
         )
 
-        # Get action from LLM
-        action = await llm.get_bot_action(
+        # Get response from LLM (may contain multiple actions)
+        bot_response = await llm.get_bot_response(
             credential=credential,
             settings=settings,
             user_message=clean_text,
@@ -48,21 +48,61 @@ async def handle_message(
             items=items,
         )
 
-        # Execute action
-        response_text = await _execute_action(
-            action_type=action.action,
-            params=action.parameters,
-            default_response=action.response_text,
-            message=message,
-            trip=trip,
-            items=items,
-            container=cosmos_container,
-            credential=credential,
-            settings=settings,
-        )
+        # Execute all actions sequentially, collect outcomes
+        outcomes: list[str] = []
+        for action in bot_response.actions:
+            result = await _execute_action(
+                action_type=action.action,
+                params=action.parameters,
+                default_response=action.response_text,
+                message=message,
+                trip=trip,
+                items=items,
+                container=cosmos_container,
+                credential=credential,
+                settings=settings,
+            )
+            outcomes.append(result)
+
+        # Auto-save suggested items to brainstorming (with dedupe)
+        saved_count = 0
+        if bot_response.suggested_items and trip:
+            existing_titles = {i.title.lower() for i in items}
+            for suggestion in bot_response.suggested_items:
+                if suggestion.title.lower() in existing_titles:
+                    continue
+                item = TripItem(
+                    groupId=message.group_id,
+                    tripId=trip.id,
+                    stage=Stage.BRAINSTORMING,
+                    category=suggestion.category,
+                    title=suggestion.title,
+                    details=ItemDetails(
+                        notes=f"💡 AI suggestion — {suggestion.notes}" if suggestion.notes
+                        else "💡 AI suggestion",
+                    ),
+                    addedBy="Sensei",
+                )
+                await storage.add_item(cosmos_container, item)
+                existing_titles.add(suggestion.title.lower())
+                saved_count += 1
 
         # Mark message as processed
         await storage.mark_message_processed(cosmos_container, message.group_id, message.id)
+
+        # Build final response
+        response_text = bot_response.response_text
+        # If actions produced specific outcomes different from the LLM text, use those
+        if len(outcomes) == 1 and outcomes[0] != bot_response.response_text:
+            response_text = outcomes[0]
+        elif len(outcomes) > 1:
+            # For multi-action, compose from action outcomes if they differ
+            unique_outcomes = [o for o in outcomes if o != bot_response.response_text]
+            if unique_outcomes:
+                response_text = "\n".join(unique_outcomes)
+
+        if saved_count > 0:
+            response_text += f"\n\n💡 Saved {saved_count} idea{'s' if saved_count > 1 else ''} to brainstorming."
 
         # Send response
         await groupme.send_message(settings.groupme_bot_id, response_text)
@@ -73,6 +113,31 @@ async def handle_message(
             settings.groupme_bot_id,
             "Sorry, something went wrong. Please try again.",
         )
+
+
+def _parse_booking(params: dict) -> BookingDetails:
+    """Extract structured booking details from LLM parameters."""
+    raw = params.get("booking", {})
+    if not isinstance(raw, dict):
+        return BookingDetails()
+    return BookingDetails(
+        confirmation_number=raw.get("confirmation_number") or None,
+        provider=raw.get("provider") or None,
+        address=raw.get("address") or None,
+        contact_info=raw.get("contact_info") or None,
+    )
+
+
+def _parse_dates(params: dict) -> dict | None:
+    """Extract structured dates from LLM parameters."""
+    raw = params.get("dates", {})
+    if not isinstance(raw, dict):
+        return None
+    start = raw.get("start")
+    end = raw.get("end")
+    if not start and not end:
+        return None
+    return {"start": str(start) if start else None, "end": str(end) if end else None}
 
 
 async def _execute_action(
@@ -107,13 +172,19 @@ async def _execute_action(
                 "No active trip. Create one first! Say something like 'start a new trip to Hawaii'."
             )
         stage_str = params.get("stage", "brainstorming")
+        booking = _parse_booking(params)
+        dates = _parse_dates(params)
         item = TripItem(
             groupId=message.group_id,
             tripId=trip.id,
             stage=Stage(stage_str),
             category=params.get("category", "other"),
             title=params.get("title", "Untitled"),
-            details={"notes": params.get("notes")},
+            details=ItemDetails(
+                notes=params.get("notes"),
+                booking=booking,
+                dates=dates,
+            ),
             addedBy=message.name,
         )
         await storage.add_item(container, item)

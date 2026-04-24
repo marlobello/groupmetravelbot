@@ -20,33 +20,64 @@ TEMPLATE_DIR = "app/templates"
 def generate_summary(trip: Trip, items: list[TripItem]) -> str:
     """Generate a plain-text itinerary summary for chat."""
     finalized = [i for i in items if i.stage == Stage.FINALIZED]
-    if not finalized:
+    planning = [i for i in items if i.stage == Stage.PLANNING]
+
+    if not finalized and not planning:
         return (
             f"📋 {trip.name}\n\n"
-            "No finalized items yet. Move items to 'finalized' to build the itinerary."
+            "No finalized or planned items yet. Move items to 'planning' or 'finalized' "
+            "to build the itinerary."
         )
 
     lines = [f"📋 {trip.name} — Itinerary Summary\n"]
 
-    by_category: dict[str, list[TripItem]] = {}
-    for item in finalized:
-        by_category.setdefault(item.category, []).append(item)
+    # Finalized items (confirmed)
+    if finalized:
+        lines.append("✅ Confirmed")
+        by_category: dict[str, list[TripItem]] = {}
+        for item in finalized:
+            by_category.setdefault(item.category, []).append(item)
 
-    for category, cat_items in by_category.items():
-        lines.append(f"\n{_category_emoji(category)} {category.title()}")
-        for item in cat_items:
-            line = f"  • {item.title}"
-            if item.details.dates:
-                start = item.details.dates.get("start", "?")
-                end = item.details.dates.get("end", "?")
-                line += f" ({start} → {end})"
-            if item.details.booking and item.details.booking.confirmation_number:
-                line += f" [Conf: {item.details.booking.confirmation_number}]"
-            lines.append(line)
-            if item.details.notes:
-                lines.append(f"    {item.details.notes}")
+        for category, cat_items in by_category.items():
+            lines.append(f"\n{_category_emoji(category)} {category.title()}")
+            for item in cat_items:
+                lines.append(_format_item(item))
+
+    # Planning items (not yet booked)
+    if planning:
+        if finalized:
+            lines.append("")
+        lines.append("📝 Planned (not yet booked)")
+        by_category_p: dict[str, list[TripItem]] = {}
+        for item in planning:
+            by_category_p.setdefault(item.category, []).append(item)
+
+        for category, cat_items in by_category_p.items():
+            lines.append(f"\n{_category_emoji(category)} {category.title()}")
+            for item in cat_items:
+                lines.append(_format_item(item))
 
     return "\n".join(lines)
+
+
+def _format_item(item: TripItem) -> str:
+    """Format a single trip item for the summary."""
+    line = f"  • {item.title}"
+    if item.details.dates:
+        start = item.details.dates.get("start", "")
+        end = item.details.dates.get("end", "")
+        if start and end:
+            line += f" ({start} → {end})"
+        elif start:
+            line += f" ({start})"
+    if item.details.booking and item.details.booking.confirmation_number:
+        line += f" [Conf: {item.details.booking.confirmation_number}]"
+    if item.details.booking and item.details.booking.address:
+        line += f"\n    📍 {item.details.booking.address}"
+    result = line
+    if item.details.notes:
+        result += f"\n    {item.details.notes}"
+    return result
 
 
 async def generate_pdf_url(

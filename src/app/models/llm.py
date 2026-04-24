@@ -19,7 +19,23 @@ class ActionType(StrEnum):
     CLARIFY = "clarify"
 
 
+class SuggestedItem(BaseModel):
+    """An item the LLM suggests saving to brainstorming."""
+
+    title: str
+    category: str = "other"
+    notes: str = ""
+
+
 class BotAction(BaseModel):
     action: ActionType
     parameters: dict = {}
+    response_text: str = ""
+
+
+class BotResponse(BaseModel):
+    """Normalized LLM response — always contains a list of actions."""
+
+    actions: list[BotAction]
     response_text: str
+    suggested_items: list[SuggestedItem] = []

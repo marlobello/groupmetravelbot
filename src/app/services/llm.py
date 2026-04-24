@@ -7,7 +7,7 @@ from azure.identity.aio import DefaultAzureCredential
 from openai import AsyncAzureOpenAI
 
 from app.config import Settings
-from app.models.llm import ActionType, BotAction
+from app.models.llm import ActionType, BotAction, BotResponse, SuggestedItem
 from app.models.trip import Trip, TripItem
 
 logger = logging.getLogger(__name__)
@@ -62,16 +62,44 @@ For general travel knowledge (things to do, restaurants, neighborhoods, culture)
 
 ## Response Format
 Always respond with a JSON object containing:
-- "action": one of {actions}
-- "parameters": action-specific parameters (see below)
-- "response_text": a natural, conversational response to send in the group chat
+- "actions": an array of one or more action objects, each with "action" and "parameters"
+- "response_text": a single natural, conversational response to send in the group chat
+- "suggested_items": (optional) array of items to save to brainstorming when answering questions
+
+When a user request involves multiple distinct items (e.g. "add the flight and hotel"), return \
+multiple action objects in the "actions" array — one per item. Do NOT combine them.
 
 Keep response_text concise but informative — this is a group chat, not an essay. Use emoji \
 sparingly to keep things fun. If you have a lot of info, use bullet points.
 
+Example single action:
+{{"actions": [{{"action": "add_item", "parameters": {{...}}}}], "response_text": "Done!"}}
+
+Example multi-action:
+{{"actions": [
+  {{"action": "add_item", "parameters": {{"title": "Flight", "category": "transport", ...}}}},
+  {{"action": "add_item", "parameters": {{"title": "Hotel", "category": "lodging", ...}}}}
+], "response_text": "Added your flight and hotel! ✈️🏨"}}
+
+Example with suggested items (when answering travel questions):
+{{"actions": [{{"action": "query", "parameters": {{"question": "..."}}}}], \
+"response_text": "Here are top things to do...", \
+"suggested_items": [{{"title": "Colosseum Tour", "category": "activity", \
+"notes": "Ancient amphitheater, book skip-the-line tickets"}}]}}
+
 ## Actions and Parameters
 - add_item: {{"title": str, "category": "lodging"|"transport"|"activity"|"dining"|"other", \
-"stage": "brainstorming"|"planning"|"finalized", "notes": str}}
+"stage": "brainstorming"|"planning"|"finalized", "notes": str, \
+"booking": {{"confirmation_number": str|null, "provider": str|null, "address": str|null, \
+"contact_info": str|null}}, \
+"dates": {{"start": str|null, "end": str|null}} }}
+  When adding items, ALWAYS extract structured data:
+  - Put confirmation/reference numbers in booking.confirmation_number
+  - Put hotel/airline/company names in booking.provider
+  - Put physical addresses in booking.address
+  - Put dates/times in dates.start and dates.end (use ISO-like format: "2025-06-15" or \
+"2025-06-15 8:30pm")
+  - Keep notes for additional context that doesn't fit structured fields
 - move_item: {{"item_title": str, "new_stage": "brainstorming"|"planning"|"finalized"}}
 - update_item: {{"item_title": str, "updates": dict}}
 - delete_item: {{"item_title": str}}
@@ -82,6 +110,13 @@ sparingly to keep things fun. If you have a lot of info, use bullet points.
 - archive_trip: {{}}
 - help: {{}}
 - clarify: {{"question": str}} — ask the group a follow-up when you need more info
+
+## Suggested Items
+When answering travel questions (query or web_search), if your response includes specific \
+recommendations (places, restaurants, activities, tours), include them in "suggested_items" so they \
+can be automatically saved to brainstorming. Each suggested item needs title, category, and notes. \
+Only include 1-3 high-quality suggestions, not every mention. Don't suggest items that already \
+exist in the trip context below.
 
 ## Guidelines
 - When adding items, always include helpful notes with details you know or have researched.
@@ -108,18 +143,73 @@ def _build_trip_context(trip: Trip | None, items: list[TripItem]) -> str:
         stage_items = [i for i in items if i.stage == stage]
         lines.append(f"\n{stage.title()} ({len(stage_items)} items):")
         for item in stage_items:
-            lines.append(f"  - [{item.category}] {item.title}: {item.details.notes or 'no notes'}")
+            parts = [f"  - [{item.category}] {item.title}"]
+            if item.details.notes:
+                parts.append(f": {item.details.notes}")
+            if item.details.dates:
+                parts.append(f" | Dates: {item.details.dates}")
+            if item.details.booking and item.details.booking.confirmation_number:
+                parts.append(f" | Conf: {item.details.booking.confirmation_number}")
+            lines.append("".join(parts))
     return "\n".join(lines)
 
 
-async def get_bot_action(
+def _parse_llm_response(data: dict) -> BotResponse:
+    """Parse raw LLM JSON into a normalized BotResponse (always-array)."""
+    response_text = data.get("response_text", "")
+
+    # Parse suggested items
+    raw_suggestions = data.get("suggested_items", [])
+    suggested_items = []
+    for s in raw_suggestions[:3]:  # cap at 3
+        if isinstance(s, dict) and s.get("title"):
+            suggested_items.append(SuggestedItem(
+                title=s["title"],
+                category=s.get("category", "other"),
+                notes=s.get("notes", ""),
+            ))
+
+    # Parse actions — accept both single and array format
+    actions = []
+    if "actions" in data and isinstance(data["actions"], list):
+        for a in data["actions"]:
+            if isinstance(a, dict) and a.get("action") in VALID_ACTIONS:
+                actions.append(BotAction(
+                    action=a["action"],
+                    parameters=a.get("parameters", {}),
+                    response_text=response_text,
+                ))
+    elif data.get("action") in VALID_ACTIONS:
+        # Legacy single-action format
+        actions.append(BotAction(
+            action=data["action"],
+            parameters=data.get("parameters", {}),
+            response_text=response_text,
+        ))
+
+    if not actions:
+        actions.append(BotAction(
+            action=ActionType.CLARIFY,
+            parameters={"question": "I'm not sure what you'd like me to do. Could you rephrase?"},
+            response_text="I'm not sure what you'd like me to do. Could you rephrase that?",
+        ))
+        response_text = actions[0].response_text
+
+    return BotResponse(
+        actions=actions,
+        response_text=response_text,
+        suggested_items=suggested_items,
+    )
+
+
+async def get_bot_response(
     credential: DefaultAzureCredential,
     settings: Settings,
     user_message: str,
     user_name: str,
     trip: Trip | None,
     items: list[TripItem],
-) -> BotAction:
+) -> BotResponse:
     trip_context = _build_trip_context(trip, items)
     system_prompt = SYSTEM_PROMPT.format(
         actions=", ".join(VALID_ACTIONS),
@@ -144,23 +234,15 @@ async def get_bot_action(
         )
         content = response.choices[0].message.content
         data = json.loads(content)
-
-        # Validate action is in whitelist
-        if data.get("action") not in VALID_ACTIONS:
-            return BotAction(
-                action=ActionType.CLARIFY,
-                parameters={
-                    "question": "I'm not sure what you'd like me to do. Could you rephrase?"
-                },
-                response_text="I'm not sure what you'd like me to do. Could you rephrase that?",
-            )
-
-        return BotAction(**data)
+        return _parse_llm_response(data)
     except Exception:
         logger.exception("Error getting bot action from LLM")
-        return BotAction(
-            action=ActionType.CLARIFY,
-            parameters={},
+        return BotResponse(
+            actions=[BotAction(
+                action=ActionType.CLARIFY,
+                parameters={},
+                response_text="Sorry, I had trouble understanding that. Could you try again?",
+            )],
             response_text="Sorry, I had trouble understanding that. Could you try again?",
         )
     finally:
