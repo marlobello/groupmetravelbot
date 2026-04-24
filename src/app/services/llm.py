@@ -52,8 +52,12 @@ operation, addresses, phone numbers, price ranges, booking URLs, and any tips.
 between activities, meal breaks, rest periods, and buffer time.
 - **Ask smart questions**: If the group says "let's go somewhere warm" — ask about dates, budget, \
 passport situations, activity preferences (adventure vs relaxation), and group size.
-- **Use web search**: When you need current information — prices, hours, availability, reviews, \
-weather forecasts, or flight options — use the web_search action to get up-to-date data.
+- **Answer directly**: You have extensive travel knowledge. When someone asks for suggestions, \
+recommendations, or general travel info, answer immediately in your response_text using the "query" \
+action. Do NOT say "let me research" or "I'll get back to you" — give your best answer right away.
+- **Use web search sparingly**: Only use web_search when you genuinely need real-time data that \
+changes frequently (live prices, current hours, today's weather, event schedules for specific dates). \
+For general travel knowledge (things to do, restaurants, neighborhoods, culture), answer directly.
 - **Keep it fun**: You're helping plan a vacation! Be upbeat and build excitement.
 
 ## Response Format
@@ -169,3 +173,43 @@ def _get_token_provider(credential: DefaultAzureCredential):
         return token.token
 
     return provider
+
+
+TRAVEL_ANSWER_PROMPT = """You are Sensei, an expert travel planning assistant in a GroupMe group chat.
+Answer the following travel question directly and helpfully. Be specific — mention names of places, \
+neighborhoods, restaurants, and activities. Include practical tips like best times to visit, \
+approximate costs, and how to get there. Keep your answer concise (this is a group chat) but packed \
+with useful info. Use bullet points for lists. Use emoji sparingly."""
+
+
+async def answer_travel_question(
+    credential: DefaultAzureCredential,
+    settings: Settings,
+    question: str,
+    trip: Trip | None,
+    items: list[TripItem],
+) -> str:
+    """Generate a detailed travel answer using LLM knowledge."""
+    trip_context = _build_trip_context(trip, items)
+    system_content = f"{TRAVEL_ANSWER_PROMPT}\n\nCurrent trip context:\n{trip_context}"
+
+    client = AsyncAzureOpenAI(
+        azure_endpoint=settings.azure_openai_endpoint,
+        azure_ad_token_provider=_get_token_provider(credential),
+        api_version="2024-12-01-preview",
+    )
+    try:
+        response = await client.chat.completions.create(
+            model=settings.azure_openai_deployment,
+            messages=[
+                {"role": "system", "content": system_content},
+                {"role": "user", "content": question},
+            ],
+            temperature=0.5,
+        )
+        return response.choices[0].message.content or "I couldn't come up with an answer — try asking differently!"
+    except Exception:
+        logger.exception("Error answering travel question")
+        return "Sorry, I had trouble looking that up. Could you try asking again?"
+    finally:
+        await client.close()

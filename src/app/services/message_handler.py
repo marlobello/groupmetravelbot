@@ -168,9 +168,22 @@ async def _execute_action(
                 return itinerary.generate_summary(trip, items)
         return itinerary.generate_summary(trip, items)
 
+    if action_type == ActionType.WEB_SEARCH:
+        # Follow up with a knowledge-based answer since we don't have a live search API
+        query = params.get("query", "")
+        if query:
+            follow_up = await llm.answer_travel_question(
+                credential=credential,
+                settings=settings,
+                question=query,
+                trip=trip,
+                items=items,
+            )
+            return follow_up
+        return default_response
+
     if action_type in (
         ActionType.QUERY,
-        ActionType.WEB_SEARCH,
         ActionType.HELP,
         ActionType.CLARIFY,
     ):
