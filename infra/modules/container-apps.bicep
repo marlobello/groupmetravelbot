@@ -4,6 +4,9 @@ param location string
 @description('Name of the Container App.')
 param containerAppName string
 
+@description('Name of existing managed certificate. Leave empty to auto-generate.')
+param managedCertificateName string = ''
+
 @description('Custom domain hostname (e.g. sensei.dotheneedful.dev). Leave empty to skip.')
 param customDomainName string = ''
 
@@ -50,9 +53,11 @@ resource environment 'Microsoft.App/managedEnvironments@2024-03-01' = {
   }
 }
 
+var certName = !empty(managedCertificateName) ? managedCertificateName : 'cert-${replace(customDomainName, '.', '-')}'
+
 resource managedCertificate 'Microsoft.App/managedEnvironments/managedCertificates@2024-03-01' = if (!empty(customDomainName)) {
   parent: environment
-  name: 'cert-${replace(customDomainName, '.', '-')}'
+  name: certName
   location: location
   properties: {
     subjectName: customDomainName

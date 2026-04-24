@@ -22,6 +22,9 @@ param containerImage string = 'mcr.microsoft.com/azuredocs/containerapps-hellowo
 @description('Custom domain hostname (e.g. sensei.dotheneedful.dev). Leave empty to skip.')
 param customDomainName string = 'sensei.dotheneedful.dev'
 
+@description('Name of existing managed certificate in the environment.')
+param managedCertificateName string = 'mc-travelbot-env--sensei-dotheneed-9347'
+
 var resourceToken = uniqueString(resourceGroup().id)
 
 // ─── Managed Identity ────────────────────────────────────────────────
@@ -69,6 +72,7 @@ module containerApps 'modules/container-apps.bicep' = {
     webhookSecret: webhookSecret
     webAccessKey: webAccessKey
     customDomainName: customDomainName
+    managedCertificateName: managedCertificateName
   }
 }
 
