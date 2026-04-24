@@ -56,11 +56,7 @@ resource tripsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/cont
         indexingMode: 'consistent'
         automatic: true
         includedPaths: [
-          { path: '/groupId/?' }
-          { path: '/type/?' }
-          { path: '/tripId/?' }
-          { path: '/stage/?' }
-          { path: '/status/?' }
+          { path: '/*' }
         ]
         excludedPaths: [
           { path: '/details/*' }
