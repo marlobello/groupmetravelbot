@@ -40,6 +40,9 @@ async def handle_message(
                 blob_container, message.group_id, active["trip_id"]
             )
 
+        # Load conversation history
+        chat_history = await storage.read_chat_history(blob_container, message.group_id)
+
         # Acquire per-group lock to serialise writes
         async with storage._get_group_lock(message.group_id):
             # Ask the LLM
@@ -49,6 +52,7 @@ async def handle_message(
                 user_message=clean_text,
                 user_name=message.name,
                 trip_files=trip_files,
+                chat_history=chat_history,
             )
 
             # Handle trip lifecycle commands
@@ -79,8 +83,14 @@ async def handle_message(
         # Mark processed
         await storage.mark_message_processed(blob_container, message.group_id, message.id)
 
-        # Send response
+        # Save conversation history (user message + assistant response)
         chat_message = result.get("message", "")
+        if chat_message:
+            chat_history.append({"role": "user", "content": f"{message.name}: {clean_text}"})
+            chat_history.append({"role": "assistant", "content": chat_message})
+            await storage.write_chat_history(blob_container, message.group_id, chat_history)
+
+        # Send response
         if chat_message:
             await groupme.send_message(settings.groupme_bot_id, chat_message)
 

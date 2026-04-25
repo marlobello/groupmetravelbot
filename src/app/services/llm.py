@@ -162,6 +162,7 @@ async def get_response(
     user_message: str,
     user_name: str,
     trip_files: dict[str, str] | None,
+    chat_history: list[dict[str, str]] | None = None,
 ) -> dict:
     """Call Azure OpenAI and return parsed response.
 
@@ -181,6 +182,14 @@ async def get_response(
     else:
         system = NO_TRIP_PROMPT
 
+    messages: list[dict[str, str]] = [{"role": "system", "content": system}]
+
+    # Include recent conversation history for context
+    if chat_history:
+        messages.extend(chat_history)
+
+    messages.append({"role": "user", "content": f"{user_name}: {user_message}"})
+
     client = AsyncAzureOpenAI(
         azure_endpoint=settings.azure_openai_endpoint,
         azure_ad_token_provider=_get_token_provider(credential),
@@ -190,10 +199,7 @@ async def get_response(
     try:
         response = await client.chat.completions.create(
             model=settings.azure_openai_deployment,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": f"{user_name}: {user_message}"},
-            ],
+            messages=messages,
             response_format={"type": "json_object"},
             temperature=0.3,
         )

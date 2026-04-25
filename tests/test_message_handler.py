@@ -50,6 +50,8 @@ async def test_basic_query_flow(mock_storage, mock_llm, mock_groupme):
             "itinerary.md": "",
         }
     )
+    mock_storage.read_chat_history = AsyncMock(return_value=[])
+    mock_storage.write_chat_history = AsyncMock()
     mock_storage.mark_message_processed = AsyncMock()
 
     lock = AsyncMock()
@@ -87,6 +89,8 @@ async def test_file_update_flow(mock_storage, mock_llm, mock_groupme):
         }
     )
     mock_storage.write_trip_file = AsyncMock()
+    mock_storage.read_chat_history = AsyncMock(return_value=[])
+    mock_storage.write_chat_history = AsyncMock()
     mock_storage.mark_message_processed = AsyncMock()
 
     lock = AsyncMock()
@@ -125,6 +129,8 @@ async def test_new_trip_creation(mock_storage, mock_llm, mock_groupme):
     mock_storage.create_trip = AsyncMock(
         return_value={"trip_id": "new-1", "trip_name": "Tokyo 2025"}
     )
+    mock_storage.read_chat_history = AsyncMock(return_value=[])
+    mock_storage.write_chat_history = AsyncMock()
     mock_storage.mark_message_processed = AsyncMock()
 
     lock = AsyncMock()
@@ -174,6 +180,8 @@ async def test_archive_trip(mock_storage, mock_llm, mock_groupme):
         }
     )
     mock_storage.archive_trip = AsyncMock()
+    mock_storage.read_chat_history = AsyncMock(return_value=[])
+    mock_storage.write_chat_history = AsyncMock()
     mock_storage.mark_message_processed = AsyncMock()
 
     lock = AsyncMock()
@@ -243,6 +251,8 @@ async def test_error_sends_apology(mock_storage, mock_llm, mock_groupme):
 async def test_no_trip_just_chat(mock_storage, mock_llm, mock_groupme):
     mock_storage.check_message_processed = AsyncMock(return_value=False)
     mock_storage.get_active_trip = AsyncMock(return_value=None)
+    mock_storage.read_chat_history = AsyncMock(return_value=[])
+    mock_storage.write_chat_history = AsyncMock()
     mock_storage.mark_message_processed = AsyncMock()
 
     lock = AsyncMock()
@@ -259,3 +269,62 @@ async def test_no_trip_just_chat(mock_storage, mock_llm, mock_groupme):
 
     mock_storage.read_trip_files.assert_not_called()
     mock_groupme.send_message.assert_called_once()
+
+
+# ── Conversation history ──────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+@patch("app.services.message_handler.groupme")
+@patch("app.services.message_handler.llm")
+@patch("app.services.message_handler.storage")
+async def test_chat_history_passed_to_llm(mock_storage, mock_llm, mock_groupme):
+    """Chat history is loaded and passed to the LLM, then updated after response."""
+    container = AsyncMock()
+    prior_history = [
+        {"role": "user", "content": "Alice: what about Rome?"},
+        {"role": "assistant", "content": "Rome sounds great!"},
+    ]
+
+    mock_storage.check_message_processed = AsyncMock(return_value=False)
+    mock_storage.get_active_trip = AsyncMock(
+        return_value={"trip_id": "t1", "trip_name": "Rome 2025"}
+    )
+    mock_storage.read_trip_files = AsyncMock(
+        return_value={
+            "trip.md": "# Rome",
+            "brainstorming.md": "",
+            "planning.md": "",
+            "itinerary.md": "",
+        }
+    )
+    mock_storage.read_chat_history = AsyncMock(return_value=prior_history)
+    mock_storage.write_chat_history = AsyncMock()
+    mock_storage.mark_message_processed = AsyncMock()
+
+    lock = AsyncMock()
+    lock.__aenter__ = AsyncMock(return_value=None)
+    lock.__aexit__ = AsyncMock(return_value=False)
+    mock_storage._get_group_lock = MagicMock(return_value=lock)
+
+    mock_llm.get_response = AsyncMock(return_value={"message": "Yes, add it to brainstorming!"})
+    mock_groupme.send_message = AsyncMock()
+
+    await handle_message(
+        _make_message(text="@sensei yes put that on the list"),
+        container,
+        AsyncMock(),
+        _make_settings(),
+    )
+
+    # Verify history was passed to LLM
+    llm_call = mock_llm.get_response.call_args
+    assert llm_call.kwargs["chat_history"] == prior_history
+
+    # Verify updated history was saved (prior + new user + new assistant)
+    save_call = mock_storage.write_chat_history.call_args
+    saved_history = save_call[0][2]
+    assert len(saved_history) == 4
+    assert saved_history[-2]["role"] == "user"
+    assert saved_history[-1]["role"] == "assistant"
+    assert saved_history[-1]["content"] == "Yes, add it to brainstorming!"
