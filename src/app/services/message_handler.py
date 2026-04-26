@@ -9,7 +9,7 @@ from azure.storage.blob.aio import ContainerClient
 
 from app.config import Settings
 from app.models.groupme import GroupMeMessage
-from app.services import groupme, llm, storage
+from app.services import attachment_processor, groupme, llm, storage
 
 logger = logging.getLogger(__name__)
 
@@ -43,13 +43,25 @@ async def handle_message(
         # Load conversation history
         chat_history = await storage.read_chat_history(blob_container, message.group_id)
 
+        # Process any file/image attachments
+        attachment_text = None
+        if message.attachments:
+            attachment_text = await attachment_processor.process_attachments(
+                message.attachments, settings, credential
+            )
+
+        # Build the full user message for the LLM
+        llm_message = clean_text
+        if attachment_text:
+            llm_message = f"{clean_text}\n\n{attachment_text}" if clean_text else attachment_text
+
         # Acquire per-group lock to serialise writes
         async with storage._get_group_lock(message.group_id):
             # Ask the LLM
             result = await llm.get_response(
                 credential=credential,
                 settings=settings,
-                user_message=clean_text,
+                user_message=llm_message,
                 user_name=message.name,
                 trip_files=trip_files,
                 chat_history=chat_history,

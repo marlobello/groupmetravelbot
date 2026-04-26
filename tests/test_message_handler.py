@@ -328,3 +328,108 @@ async def test_chat_history_passed_to_llm(mock_storage, mock_llm, mock_groupme):
     assert saved_history[-2]["role"] == "user"
     assert saved_history[-1]["role"] == "assistant"
     assert saved_history[-1]["content"] == "Yes, add it to brainstorming!"
+
+
+# ── Attachment processing ─────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+@patch("app.services.message_handler.attachment_processor")
+@patch("app.services.message_handler.groupme")
+@patch("app.services.message_handler.llm")
+@patch("app.services.message_handler.storage")
+async def test_attachment_text_appended_to_llm_message(
+    mock_storage, mock_llm, mock_groupme, mock_attachment
+):
+    """Attachment text is extracted and appended to the user message sent to the LLM."""
+    container = AsyncMock()
+
+    mock_storage.check_message_processed = AsyncMock(return_value=False)
+    mock_storage.get_active_trip = AsyncMock(
+        return_value={"trip_id": "t1", "trip_name": "Rome 2025"}
+    )
+    mock_storage.read_trip_files = AsyncMock(
+        return_value={
+            "trip.md": "# Rome",
+            "brainstorming.md": "",
+            "planning.md": "",
+            "itinerary.md": "",
+        }
+    )
+    mock_storage.read_chat_history = AsyncMock(return_value=[])
+    mock_storage.write_chat_history = AsyncMock()
+    mock_storage.mark_message_processed = AsyncMock()
+
+    lock = AsyncMock()
+    lock.__aenter__ = AsyncMock(return_value=None)
+    lock.__aexit__ = AsyncMock(return_value=False)
+    mock_storage._get_group_lock = MagicMock(return_value=lock)
+
+    mock_attachment.process_attachments = AsyncMock(
+        return_value="### Attached: flight.pdf\nFlight AA123 DFW→NRT Jan 15"
+    )
+    mock_llm.get_response = AsyncMock(return_value={"message": "Got it! I see flight AA123."})
+    mock_groupme.send_message = AsyncMock()
+
+    msg = _make_message(
+        text="@sensei add this to the itinerary",
+        attachments=[
+            {
+                "type": "file",
+                "url": "https://i.groupme.com/flight.pdf",
+                "file_name": "flight.pdf",
+            }
+        ],
+    )
+    await handle_message(msg, container, AsyncMock(), _make_settings())
+
+    # Verify the LLM received both the user text and attachment content
+    llm_call = mock_llm.get_response.call_args
+    assert "add this to the itinerary" in llm_call.kwargs["user_message"]
+    assert "Flight AA123" in llm_call.kwargs["user_message"]
+
+
+@pytest.mark.asyncio
+@patch("app.services.message_handler.attachment_processor")
+@patch("app.services.message_handler.groupme")
+@patch("app.services.message_handler.llm")
+@patch("app.services.message_handler.storage")
+async def test_attachment_only_no_text(mock_storage, mock_llm, mock_groupme, mock_attachment):
+    """Message with attachment but no text still sends extracted content to LLM."""
+    container = AsyncMock()
+
+    mock_storage.check_message_processed = AsyncMock(return_value=False)
+    mock_storage.get_active_trip = AsyncMock(
+        return_value={"trip_id": "t1", "trip_name": "Rome 2025"}
+    )
+    mock_storage.read_trip_files = AsyncMock(
+        return_value={
+            "trip.md": "# Rome",
+            "brainstorming.md": "",
+            "planning.md": "",
+            "itinerary.md": "",
+        }
+    )
+    mock_storage.read_chat_history = AsyncMock(return_value=[])
+    mock_storage.write_chat_history = AsyncMock()
+    mock_storage.mark_message_processed = AsyncMock()
+
+    lock = AsyncMock()
+    lock.__aenter__ = AsyncMock(return_value=None)
+    lock.__aexit__ = AsyncMock(return_value=False)
+    mock_storage._get_group_lock = MagicMock(return_value=lock)
+
+    mock_attachment.process_attachments = AsyncMock(
+        return_value="### Attached: screenshot.jpg\nHotel booking #12345"
+    )
+    mock_llm.get_response = AsyncMock(return_value={"message": "I see a hotel booking!"})
+    mock_groupme.send_message = AsyncMock()
+
+    msg = _make_message(
+        text="@sensei",
+        attachments=[{"type": "image", "url": "https://i.groupme.com/screenshot.jpg"}],
+    )
+    await handle_message(msg, container, AsyncMock(), _make_settings())
+
+    llm_call = mock_llm.get_response.call_args
+    assert "Hotel booking #12345" in llm_call.kwargs["user_message"]
