@@ -213,3 +213,83 @@ async def test_web_auth_accepts_valid_cookie(client, mock_app_state):
 
     resp = await client.get("/trips", cookies={"sensei_access": "my-secret-key"})
     assert resp.status_code == 200
+
+
+# ── XSS prevention tests ─────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_xss_in_trip_name_escaped(client, mock_app_state):
+    """Trip name with HTML/script tags is escaped in output."""
+    container = app.state.blob_container
+    malicious_name = '<script>alert("xss")</script>'
+    active_info = json.dumps({"trip_id": "t1", "trip_name": malicious_name}).encode()
+
+    def _make_blob_client(name):
+        mock = MagicMock()
+        dl = AsyncMock()
+        if name.endswith("active_trip.json"):
+            dl.readall.return_value = active_info
+        else:
+            dl.readall.return_value = b"# Test\n"
+        mock.download_blob = AsyncMock(return_value=dl)
+        return mock
+
+    container.get_blob_client.side_effect = _make_blob_client
+
+    resp = await client.get("/trips/g1")
+    assert resp.status_code == 200
+    # Raw script tags must NOT appear in output
+    assert "<script>alert" not in resp.text
+    # Escaped version should appear
+    assert "&lt;script&gt;" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_xss_in_markdown_content_escaped(client, mock_app_state):
+    """Markdown content with raw HTML tags is escaped."""
+    container = app.state.blob_container
+    active_info = json.dumps({"trip_id": "t1", "trip_name": "Test Trip"}).encode()
+
+    def _make_blob_client(name):
+        mock = MagicMock()
+        dl = AsyncMock()
+        if name.endswith("active_trip.json"):
+            dl.readall.return_value = active_info
+        elif name.endswith("brainstorming.md"):
+            dl.readall.return_value = b'<img src=x onerror="alert(1)">'
+        else:
+            dl.readall.return_value = b"# Safe content\n"
+        mock.download_blob = AsyncMock(return_value=dl)
+        return mock
+
+    container.get_blob_client.side_effect = _make_blob_client
+
+    resp = await client.get("/trips/g1")
+    assert resp.status_code == 200
+    assert 'onerror="alert(1)"' not in resp.text
+
+
+@pytest.mark.asyncio
+async def test_xss_in_group_list_escaped(client, mock_app_state):
+    """Group list with malicious trip names is escaped."""
+    container = app.state.blob_container
+    container.list_blobs.return_value = _async_iter(
+        [_blob_with_name("trips/g1/active_trip.json")]
+    )
+
+    malicious_name = '"><img src=x onerror=alert(1)>'
+    blob_client = MagicMock()
+    download_mock = AsyncMock()
+    download_mock.readall.return_value = json.dumps(
+        {"trip_id": "t1", "trip_name": malicious_name}
+    ).encode()
+    blob_client.download_blob = AsyncMock(return_value=download_mock)
+    container.get_blob_client.return_value = blob_client
+
+    resp = await client.get("/trips")
+    assert resp.status_code == 200
+    # Raw HTML tags must be escaped — no unescaped < or > around the payload
+    assert "<img src=x" not in resp.text
+    # The escaped version should be present as harmless text
+    assert "&lt;img" in resp.text

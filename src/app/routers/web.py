@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import logging
 import secrets
 
@@ -83,6 +84,14 @@ document.querySelectorAll('.tab').forEach(tab => {
 md = markdown.Markdown(extensions=["tables", "fenced_code", "nl2br"])
 
 
+def _render_markdown(text: str) -> str:
+    """Convert markdown to HTML with raw HTML tags escaped for safety."""
+    md.reset()
+    # Escape any raw HTML in the source before markdown conversion
+    safe_text = html.escape(text)
+    return md.convert(safe_text)
+
+
 def _check_web_auth(request: Request) -> Response | None:
     """Return an error response if auth fails, or None if auth passes."""
     access_key = request.app.state.settings.web_access_key
@@ -117,13 +126,15 @@ def _check_web_auth(request: Request) -> Response | None:
 
 
 def _render_page(title: str, subtitle: str, body: str) -> str:
+    safe_title = html.escape(title)
+    safe_subtitle = html.escape(subtitle)
     return f"""<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{title} — Sensei Travel</title>
+<title>{safe_title} — Sensei Travel</title>
 <style>{CSS}</style>
 </head><body>
-<div class="header"><h1>🗺️ {title}</h1><div class="subtitle">{subtitle}</div></div>
+<div class="header"><h1>🗺️ {safe_title}</h1><div class="subtitle">{safe_subtitle}</div></div>
 {body}
 <footer>Sensei Travel Bot</footer>
 </body></html>"""
@@ -161,10 +172,11 @@ async def list_trips(request: Request):
     else:
         links = ""
         for g in sorted(groups, key=lambda x: x["trip_name"]):
-            label = g["trip_name"] or g["group_id"]
+            safe_label = html.escape(g["trip_name"] or g["group_id"])
+            safe_gid = html.escape(g["group_id"])
             links += (
-                f'<a href="/trips/{g["group_id"]}">{label}'
-                f'<div class="trip-name">Group: {g["group_id"]}</div></a>'
+                f'<a href="/trips/{safe_gid}">{safe_label}'
+                f'<div class="trip-name">Group: {safe_gid}</div></a>'
             )
         body = f'<div class="group-list">{links}</div>'
 
@@ -204,9 +216,8 @@ async def view_trip(group_id: str, request: Request):
         tab_id = filename.replace(".md", "")
         tab_html += f'<a class="tab{active_cls}" href="#" data-target="{tab_id}">{label}</a>'
 
-        md.reset()
         content = files.get(filename, "")
-        rendered = md.convert(content) if content else "<p><em>No content yet.</em></p>"
+        rendered = _render_markdown(content) if content else "<p><em>No content yet.</em></p>"
         card_html += f'<div id="{tab_id}" class="card{active_cls}">{rendered}</div>'
 
     body = f"""

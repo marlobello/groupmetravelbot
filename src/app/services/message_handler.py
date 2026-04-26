@@ -27,6 +27,14 @@ async def handle_message(
             logger.info("Message %s already processed, skipping", message.id)
             return
 
+        logger.info(
+            "Processing message %s from group %s (length=%d, attachments=%d)",
+            message.id,
+            message.group_id,
+            len(message.text or ""),
+            len(message.attachments) if message.attachments else 0,
+        )
+
         # Strip trigger keyword for cleaner LLM input
         clean_text = (
             message.text.replace(settings.bot_trigger_keyword, "").strip() if message.text else ""
@@ -107,7 +115,7 @@ async def handle_message(
             await groupme.send_message(settings.groupme_bot_id, chat_message)
 
     except Exception:
-        logger.exception("Error handling message %s", message.id)
+        logger.exception("Error handling message %s in group %s", message.id, message.group_id)
         await groupme.send_message(
             settings.groupme_bot_id,
             "Sorry, something went wrong. Please try again.",

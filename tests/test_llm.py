@@ -109,3 +109,16 @@ class TestParseResponse:
         assert len(result["file_updates"]) == 2
         assert "brainstorming.md" in result["file_updates"]
         assert "planning.md" in result["file_updates"]
+
+    def test_oversized_file_update_truncated(self):
+        """File updates exceeding MAX_FILE_UPDATE_BYTES are truncated."""
+        huge_content = "x" * (600 * 1024)  # 600 KB
+        raw = json.dumps(
+            {
+                "message": "Big update",
+                "file_updates": {"brainstorming.md": huge_content},
+            }
+        )
+        result = _parse_response(raw)
+        assert "brainstorming.md" in result["file_updates"]
+        assert len(result["file_updates"]["brainstorming.md"]) < len(huge_content)
