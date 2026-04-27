@@ -198,6 +198,14 @@ def test_safe_url_groupme_files():
     assert _is_safe_url("https://files.groupme.com/doc.pdf") is True
 
 
+def test_safe_url_groupme_m():
+    assert _is_safe_url("https://m.groupme.com/uploads/abc/photo.png") is True
+
+
+def test_safe_url_groupme_cdn2():
+    assert _is_safe_url("https://cdn2.groupme.com/uploads/abc/original.png?sig=xyz") is True
+
+
 def test_unsafe_url_http():
     assert _is_safe_url("http://i.groupme.com/photo.jpg") is False
 

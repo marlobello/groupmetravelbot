@@ -29,8 +29,11 @@ _PROCESSABLE_TYPES = {"image", "file", "linked_image"}
 _ALLOWED_DOMAINS = {
     "i.groupme.com",
     "v.groupme.com",
+    "m.groupme.com",
     "image.groupme.com",
     "files.groupme.com",
+    "cdn.groupme.com",
+    "cdn2.groupme.com",
 }
 
 
@@ -104,8 +107,14 @@ async def _download_attachment(url: str) -> tuple[bytes, str]:
     if not _is_safe_url(url):
         raise ValueError(f"Blocked unsafe attachment URL: {url}")
 
-    async with httpx.AsyncClient(timeout=DOWNLOAD_TIMEOUT, follow_redirects=False) as client:
+    async with httpx.AsyncClient(timeout=DOWNLOAD_TIMEOUT, follow_redirects=True) as client:
         response = await client.get(url)
+
+        # Validate the final URL after any redirects
+        final_url = str(response.url)
+        if final_url != url and not _is_safe_url(final_url):
+            raise ValueError(f"Blocked unsafe redirect target: {final_url}")
+
         response.raise_for_status()
 
         content_type = response.headers.get("content-type", "application/octet-stream")
