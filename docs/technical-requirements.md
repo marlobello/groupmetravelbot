@@ -1,5 +1,9 @@
 # Technical Requirements Document — GroupMe Travel Bot
 
+> **Note**: This was the original technical specification written before development. The actual
+> implementation differs in some areas — see [architecture.md](architecture.md) for the as-built
+> documentation. Key change: Cosmos DB was replaced with Azure Blob Storage for simplicity and cost.
+
 ## 1. Architecture Overview
 
 ```
