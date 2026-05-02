@@ -274,9 +274,7 @@ async def test_xss_in_markdown_content_escaped(client, mock_app_state):
 async def test_xss_in_group_list_escaped(client, mock_app_state):
     """Group list with malicious trip names is escaped."""
     container = app.state.blob_container
-    container.list_blobs.return_value = _async_iter(
-        [_blob_with_name("trips/g1/active_trip.json")]
-    )
+    container.list_blobs.return_value = _async_iter([_blob_with_name("trips/g1/active_trip.json")])
 
     malicious_name = '"><img src=x onerror=alert(1)>'
     blob_client = MagicMock()

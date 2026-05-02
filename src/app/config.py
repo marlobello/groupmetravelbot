@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     azure_client_id: str | None = None
     webhook_secret: str = ""
     web_access_key: str = ""
+    use_agent_framework: bool = True
 
 
 @lru_cache

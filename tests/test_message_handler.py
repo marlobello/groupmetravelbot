@@ -26,6 +26,7 @@ def _make_settings():
     s = MagicMock()
     s.bot_trigger_keyword = "@sensei"
     s.groupme_bot_id = "bot-123"
+    s.use_agent_framework = False
     return s
 
 

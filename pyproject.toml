@@ -21,6 +21,8 @@ dependencies = [
     "slowapi>=0.1.9",
     "markitdown[pdf,docx,pptx,xlsx]>=0.1.5",
     "markitdown-ocr>=0.0.1",
+    "agent-framework-core>=1.2.2",
+    "agent-framework-openai>=1.2.2",
 ]
 
 [project.optional-dependencies]
