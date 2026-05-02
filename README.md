@@ -51,16 +51,20 @@ Sensei: ✈️ Got it! Added to the itinerary:
 GroupMe webhook → FastAPI (Azure Container Apps)
   ├── Read trip docs + chat history from Azure Blob Storage
   ├── Process file/image attachments via markitdown
-  ├── Send full context to Azure OpenAI (GPT-4o)
-  ├── LLM returns chat reply + document updates (JSON)
-  ├── Write updated docs back to storage
+  ├── Microsoft Agent Framework (OpenAI ChatCompletion client)
+  │   ├── Trip documents injected into agent instructions (hybrid reads)
+  │   ├── Function tools: write_trip_file, create_trip, archive_trip
+  │   ├── Web search tool for live travel research
+  │   └── Logging middleware for observability
+  ├── Agent returns chat reply; tools handle document writes as side effects
   └── Reply via GroupMe Bot API
 ```
 
-**Stack**: Python 3.12 · FastAPI · Azure OpenAI (GPT-4o) · Azure Blob Storage · Azure Container Apps · Managed Identity
+**Stack**: Python 3.12 · FastAPI · [Microsoft Agent Framework](https://learn.microsoft.com/en-us/agent-framework/overview/) · Azure OpenAI (GPT-4o) · Azure Blob Storage · Azure Container Apps · Managed Identity
 
 **Key design decisions:**
-- **LLM-first** — No traditional CRUD; the LLM reads all docs and returns full file replacements
+- **LLM-first** — The agent reads all docs via instructions and uses function tools for writes
+- **Microsoft Agent Framework** — Replaces custom OpenAI orchestration with structured tools, middleware, and web search
 - **Markdown as storage** — Human-readable, easy to render, trivially versioned with blob versioning
 - **Serverless** — Container Apps scales to zero, OpenAI is pay-per-token, Blob Storage is pennies/GB
 
@@ -78,8 +82,10 @@ src/app/
 │   ├── webhook.py                  # POST /webhook/{secret}
 │   └── web.py                      # GET /trips, GET /trips/{group_id}
 └── services/
-    ├── message_handler.py          # Orchestrator
-    ├── llm.py                      # Azure OpenAI integration
+    ├── message_handler.py          # Orchestrator (routes to agent or legacy)
+    ├── agent.py                    # Microsoft Agent Framework integration
+    ├── tools.py                    # Function tools (write/create/archive trips)
+    ├── llm.py                      # Legacy Azure OpenAI integration
     ├── storage.py                  # Blob Storage I/O
     ├── attachment_processor.py     # File/image → markdown conversion
     └── groupme.py                  # GroupMe Bot API client
@@ -100,7 +106,7 @@ infra/
 # Install
 pip install -e ".[dev]"
 
-# Test (90 tests)
+# Test (104 tests)
 pytest tests/ -v
 
 # Lint
@@ -122,6 +128,7 @@ Copy `.env.example` and fill in values:
 | `WEBHOOK_SECRET` | ✅ | Secret path segment for webhook URL |
 | `WEB_ACCESS_KEY` | ✅ | Shared key for web UI access |
 | `AZURE_CLIENT_ID` | | Managed identity client ID (for Azure deployment) |
+| `USE_AGENT_FRAMEWORK` | | Use Microsoft Agent Framework (default: `true`) |
 
 ## Deployment
 

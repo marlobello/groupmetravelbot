@@ -9,8 +9,9 @@ Uses the hybrid approach:
 from __future__ import annotations
 
 import logging
+import time
 
-from agent_framework import SupportsWebSearchTool
+from agent_framework import AgentMiddleware, SupportsWebSearchTool
 from agent_framework.openai import OpenAIChatCompletionClient
 from azure.identity.aio import DefaultAzureCredential
 from azure.storage.blob.aio import ContainerClient
@@ -103,6 +104,22 @@ When they want to start a trip, use the `create_trip` tool.
 """
 
 
+class LoggingMiddleware(AgentMiddleware):
+    """Logs agent invocations with timing for observability."""
+
+    async def process(self, context, call_next):
+        start = time.monotonic()
+        logger.info("Agent invoked with %d chars input", len(str(context.messages)))
+        try:
+            await call_next()
+            elapsed = time.monotonic() - start
+            logger.info("Agent completed in %.2fs", elapsed)
+        except Exception:
+            elapsed = time.monotonic() - start
+            logger.exception("Agent failed after %.2fs", elapsed)
+            raise
+
+
 async def get_agent_response(
     credential: DefaultAzureCredential,
     settings: Settings,
@@ -165,6 +182,7 @@ async def get_agent_response(
         name="Sensei",
         instructions=instructions,
         tools=tools_list if tools_list else None,
+        middleware=[LoggingMiddleware()],
     )
 
     # Build the input message with conversation context
