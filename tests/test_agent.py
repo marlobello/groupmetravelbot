@@ -101,39 +101,40 @@ class TestGetAgentResponse:
 
     @pytest.mark.asyncio
     @patch("app.services.agent.OpenAIChatCompletionClient")
-    async def test_chat_history_included(
+    async def test_session_used_with_group_id(
         self, mock_client_cls, mock_credential, mock_settings, trip_files
     ):
-        """Chat history is included in the input message."""
+        """When blob_container and group_id provided, a session is used."""
         mock_result = MagicMock()
         mock_result.text = "Great idea!"
 
         mock_agent = MagicMock()
         mock_agent.run = AsyncMock(return_value=mock_result)
+        mock_session = MagicMock()
+        mock_agent.create_session = MagicMock(return_value=mock_session)
 
         mock_client = MagicMock()
         mock_client.as_agent = MagicMock(return_value=mock_agent)
         mock_client_cls.return_value = mock_client
 
-        history = [
-            {"role": "user", "content": "Let's go to Rome"},
-            {"role": "assistant", "content": "Rome is wonderful!"},
-        ]
+        mock_container = MagicMock()
 
         await get_agent_response(
             credential=mock_credential,
             settings=mock_settings,
-            user_message="What about Naples too?",
+            user_message="What about Naples?",
             user_name="Alice",
             trip_files=trip_files,
-            chat_history=history,
+            blob_container=mock_container,
+            group_id="g1",
+            trip_id="t1",
         )
 
-        call_args = mock_agent.run.call_args[0][0]
-        assert "Recent conversation:" in call_args
-        assert "Let's go to Rome" in call_args
-        assert "Rome is wonderful!" in call_args
-        assert "New message" in call_args
+        # Session is created with group_id
+        mock_agent.create_session.assert_called_once_with(session_id="g1")
+        # Agent.run is called with session
+        run_kwargs = mock_agent.run.call_args[1]
+        assert run_kwargs["session"] == mock_session
 
     @pytest.mark.asyncio
     @patch("app.services.agent.OpenAIChatCompletionClient")

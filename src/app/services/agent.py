@@ -17,6 +17,7 @@ from azure.identity.aio import DefaultAzureCredential
 from azure.storage.blob.aio import ContainerClient
 
 from app.config import Settings
+from app.services.history_provider import BlobHistoryProvider
 from app.services.tools import TripTools
 
 logger = logging.getLogger(__name__)
@@ -126,7 +127,6 @@ async def get_agent_response(
     user_message: str,
     user_name: str,
     trip_files: dict[str, str] | None,
-    chat_history: list[dict[str, str]] | None = None,
     blob_container: ContainerClient | None = None,
     group_id: str = "",
     trip_id: str | None = None,
@@ -138,6 +138,8 @@ async def get_agent_response(
     Side effects (via tools):
         - Trip files may be written
         - Trips may be created or archived
+    Side effects (via history provider):
+        - Conversation history is persisted to blob storage
     """
     # Build instructions with trip context
     if trip_files:
@@ -165,6 +167,15 @@ async def get_agent_response(
             trip_tools.archive_trip,
         ]
 
+    # Build context providers (history persistence)
+    context_providers: list = []
+    if blob_container and group_id:
+        history_provider = BlobHistoryProvider(
+            container=blob_container,
+            group_id=group_id,
+        )
+        context_providers.append(history_provider)
+
     # Create the agent client
     token_provider = _make_token_provider(credential)
     client = OpenAIChatCompletionClient(
@@ -182,24 +193,17 @@ async def get_agent_response(
         name="Sensei",
         instructions=instructions,
         tools=tools_list if tools_list else None,
+        context_providers=context_providers if context_providers else None,
         middleware=[LoggingMiddleware()],
     )
 
-    # Build the input message with conversation context
+    # Use a session keyed by group_id for conversation continuity
+    session = agent.create_session(session_id=group_id or None)
+
     input_message = f"{user_name}: {user_message}"
 
     try:
-        if chat_history:
-            # Include recent history as context in the user message
-            history_text = "\n".join(
-                f"{'[User]' if m['role'] == 'user' else '[Sensei]'}: {m['content']}"
-                for m in chat_history[-10:]  # last 5 exchanges
-            )
-            input_message = (
-                f"Recent conversation:\n{history_text}\n\nNew message — {user_name}: {user_message}"
-            )
-
-        result = await agent.run(input_message)
+        result = await agent.run(input_message, session=session)
         response_text = result.text if hasattr(result, "text") else str(result)
 
         return {"message": response_text}

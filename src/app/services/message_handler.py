@@ -49,8 +49,10 @@ async def handle_message(
                 blob_container, message.group_id, active["trip_id"]
             )
 
-        # Load conversation history
-        chat_history = await storage.read_chat_history(blob_container, message.group_id)
+        # Load conversation history (only needed for legacy path)
+        chat_history = None
+        if not settings.use_agent_framework:
+            chat_history = await storage.read_chat_history(blob_container, message.group_id)
 
         # Process any file/image attachments
         attachment_text = None
@@ -72,7 +74,6 @@ async def handle_message(
                 user_message=llm_message,
                 user_name=message.name,
                 trip_files=trip_files,
-                chat_history=chat_history,
                 blob_container=blob_container,
                 group_id=message.group_id,
                 trip_id=active["trip_id"] if active else None,
@@ -93,9 +94,10 @@ async def handle_message(
         # Mark processed
         await storage.mark_message_processed(blob_container, message.group_id, message.id)
 
-        # Save conversation history (user message + assistant response)
+        # Save conversation history (legacy path only — agent uses BlobHistoryProvider)
         chat_message = result.get("message", "")
-        if chat_message:
+        if chat_message and not settings.use_agent_framework:
+            chat_history = chat_history or []
             chat_history.append({"role": "user", "content": f"{message.name}: {clean_text}"})
             chat_history.append({"role": "assistant", "content": chat_message})
             await storage.write_chat_history(blob_container, message.group_id, chat_history)
@@ -118,7 +120,6 @@ async def _handle_with_agent(
     user_message: str,
     user_name: str,
     trip_files: dict[str, str] | None,
-    chat_history: list[dict[str, str]],
     blob_container: ContainerClient,
     group_id: str,
     trip_id: str | None,
@@ -131,7 +132,6 @@ async def _handle_with_agent(
             user_message=user_message,
             user_name=user_name,
             trip_files=trip_files,
-            chat_history=chat_history,
             blob_container=blob_container,
             group_id=group_id,
             trip_id=trip_id,
