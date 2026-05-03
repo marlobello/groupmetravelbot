@@ -122,7 +122,7 @@ Copy `.env.example` and fill in values:
 | Variable | Required | Description |
 |---|---|---|
 | `AZURE_OPENAI_ENDPOINT` | ✅ | Azure OpenAI endpoint URL |
-| `AZURE_OPENAI_DEPLOYMENT` | | Model deployment name (default: `gpt-4o`) |
+| `AZURE_OPENAI_DEPLOYMENT` | | Model deployment name (default: `gpt-4.1`) |
 | `STORAGE_ACCOUNT_NAME` | ✅ | Azure Storage account name |
 | `GROUPME_BOT_ID` | ✅ | GroupMe bot ID for posting replies |
 | `BOT_TRIGGER_KEYWORD` | | Trigger keyword (default: `@sensei`) |

@@ -22,7 +22,7 @@ def mock_credential():
 def mock_settings():
     s = MagicMock()
     s.azure_openai_endpoint = "https://fake.openai.azure.com/"
-    s.azure_openai_deployment = "gpt-4o"
+    s.azure_openai_deployment = "gpt-4.1"
     return s
 
 

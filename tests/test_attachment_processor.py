@@ -14,7 +14,7 @@ from app.services.attachment_processor import (
 def _make_settings():
     s = MagicMock()
     s.azure_openai_endpoint = "https://test.openai.azure.com/"
-    s.azure_openai_deployment = "gpt-4o"
+    s.azure_openai_deployment = "gpt-4.1"
     s.azure_client_id = None
     return s
 

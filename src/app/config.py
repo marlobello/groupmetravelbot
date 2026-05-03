@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env")
 
     azure_openai_endpoint: str
-    azure_openai_deployment: str = "gpt-4o"
+    azure_openai_deployment: str = "gpt-4.1"
     storage_account_name: str
     storage_container_name: str = "trips"
     groupme_bot_id: str
@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     webhook_secret: str = ""
     web_access_key: str = ""
     use_agent_framework: bool = True
-    enable_web_search: bool = False
+    enable_web_search: bool = True
 
 
 @lru_cache

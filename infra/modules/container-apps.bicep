@@ -127,7 +127,11 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             }
             {
               name: 'AZURE_OPENAI_DEPLOYMENT'
-              value: 'gpt-4o'
+              value: 'gpt-4.1'
+            }
+            {
+              name: 'ENABLE_WEB_SEARCH'
+              value: 'true'
             }
             {
               name: 'STORAGE_ACCOUNT_NAME'

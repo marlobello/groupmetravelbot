@@ -10,7 +10,7 @@ graph TB
         MI[User-Assigned<br/>Managed Identity]
         ACA_ENV[Container Apps<br/>Environment<br/>Consumption]
         ACA[Container App<br/>0.25 vCPU / 0.5 GiB<br/>Scale: 0–1]
-        AOAI[Azure OpenAI<br/>S0 / gpt-4o]
+        AOAI[Azure OpenAI<br/>S0 / gpt-4.1]
         SA[Storage Account<br/>Standard LRS / Hot]
         CERT[Managed Certificate<br/>sensei.dotheneedful.dev]
     end
@@ -127,7 +127,7 @@ The only secrets stored in Container Apps config are external service credential
 
 | Setting | Value |
 |---|---|
-| Model | gpt-4o (2024-11-20) |
+| Model | gpt-4.1 (2025-04-14) |
 | Capacity | Standard (pay-per-token) |
 | API version | 2024-12-01-preview |
 | Temperature | 0.3 |
