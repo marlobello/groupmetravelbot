@@ -177,11 +177,10 @@ async def get_agent_response(
         context_providers.append(history_provider)
 
     # Create the agent client
-    token_provider = _make_token_provider(credential)
     client = OpenAIChatCompletionClient(
         model=settings.azure_openai_deployment,
         azure_endpoint=settings.azure_openai_endpoint,
-        azure_ad_token_provider=token_provider,
+        credential=credential,
         api_version="2024-12-01-preview",
     )
 
@@ -212,12 +211,3 @@ async def get_agent_response(
         logger.exception("Error running agent")
         return {"message": "Sorry, I had trouble with that. Could you try again?"}
 
-
-def _make_token_provider(credential: DefaultAzureCredential):
-    """Create an async token provider for Azure OpenAI."""
-
-    async def provider():
-        token = await credential.get_token("https://cognitiveservices.azure.com/.default")
-        return token.token
-
-    return provider
