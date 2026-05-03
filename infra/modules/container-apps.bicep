@@ -131,7 +131,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             }
             {
               name: 'ENABLE_WEB_SEARCH'
-              value: 'true'
+              value: 'false'
             }
             {
               name: 'STORAGE_ACCOUNT_NAME'

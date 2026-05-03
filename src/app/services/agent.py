@@ -3,7 +3,6 @@
 Uses the hybrid approach:
 - Trip documents are injected into the system prompt (fast reads)
 - Function tools handle writes (create/write/archive trips)
-- Web search is always available for live travel research
 """
 
 from __future__ import annotations
@@ -11,7 +10,7 @@ from __future__ import annotations
 import logging
 import time
 
-from agent_framework import AgentMiddleware, SupportsWebSearchTool
+from agent_framework import AgentMiddleware
 from agent_framework.openai import OpenAIChatCompletionClient
 from azure.identity.aio import DefaultAzureCredential
 from azure.storage.blob.aio import ContainerClient
@@ -183,10 +182,6 @@ async def get_agent_response(
         credential=credential,
         api_version="2024-12-01-preview",
     )
-
-    # Add web search tool if enabled and supported by the model deployment
-    if settings.enable_web_search and isinstance(client, SupportsWebSearchTool):
-        tools_list.append(client.get_web_search_tool())
 
     agent = client.as_agent(
         name="Sensei",
