@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     webhook_secret: str = ""
     web_access_key: str = ""
     use_agent_framework: bool = True
+    enable_web_search: bool = False
 
 
 @lru_cache

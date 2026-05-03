@@ -184,8 +184,8 @@ async def get_agent_response(
         api_version="2024-12-01-preview",
     )
 
-    # Add web search tool for live travel research
-    if isinstance(client, SupportsWebSearchTool):
+    # Add web search tool if enabled and supported by the model deployment
+    if settings.enable_web_search and isinstance(client, SupportsWebSearchTool):
         tools_list.append(client.get_web_search_tool())
 
     agent = client.as_agent(
