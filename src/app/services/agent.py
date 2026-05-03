@@ -210,4 +210,3 @@ async def get_agent_response(
     except Exception:
         logger.exception("Error running agent")
         return {"message": "Sorry, I had trouble with that. Could you try again?"}
-
