@@ -85,6 +85,7 @@ src/app/
     ├── message_handler.py          # Orchestrator (routes to agent or legacy)
     ├── agent.py                    # Microsoft Agent Framework integration
     ├── tools.py                    # Function tools (write/create/archive trips)
+    ├── history_provider.py         # BlobHistoryProvider (session persistence)
     ├── llm.py                      # Legacy Azure OpenAI integration
     ├── storage.py                  # Blob Storage I/O
     ├── attachment_processor.py     # File/image → markdown conversion
@@ -106,7 +107,7 @@ infra/
 # Install
 pip install -e ".[dev]"
 
-# Test (104 tests)
+# Test (110 tests)
 pytest tests/ -v
 
 # Lint

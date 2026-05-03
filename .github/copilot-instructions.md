@@ -2,19 +2,22 @@
 
 ## Project Overview
 
-GroupMe Travel Bot ("Sensei") — a Python FastAPI application that lives in a GroupMe group chat and helps members collaboratively plan vacations. It uses Azure OpenAI as the primary intelligence layer and Azure Blob Storage for persistent markdown-based trip documents.
+GroupMe Travel Bot ("Sensei") — a Python FastAPI application that lives in a GroupMe group chat and helps members collaboratively plan vacations. It uses the **Microsoft Agent Framework** with Azure OpenAI as the intelligence layer and Azure Blob Storage for persistent markdown-based trip documents.
 
 ## Architecture
 
-GroupMe webhook POST → Azure Container Apps (FastAPI/Python) → read trip docs from Blob Storage → send to Azure OpenAI with full context → LLM returns chat reply + file updates → write updated docs back → reply via GroupMe Bot API.
+GroupMe webhook POST → Azure Container Apps (FastAPI/Python) → read trip docs from Blob Storage → Microsoft Agent Framework (OpenAI agent with function tools, web search, session persistence) → tools handle document writes as side effects → reply via GroupMe Bot API.
 
-**Design philosophy**: The LLM does the heavy lifting (conversation, research, document editing). Python is a thin facilitator for I/O.
+**Design philosophy**: The agent does the heavy lifting (conversation, research, document editing via tools). Python is a thin facilitator for I/O.
 
 Key components in `src/app/`:
 - **routers/webhook.py**: Receives GroupMe callbacks, returns 200 immediately, processes in background
-- **services/message_handler.py**: Thin orchestrator (~90 lines) — idempotency check → read blobs → LLM → write file updates → send reply
-- **services/llm.py**: Azure OpenAI integration; LLM receives all 4 trip documents as context and returns JSON with chat message + optional file updates
-- **services/storage.py**: Azure Blob Storage I/O for markdown trip documents with per-group async locks for concurrency
+- **services/message_handler.py**: Thin orchestrator — idempotency check → read blobs → route to agent (or legacy) → send reply
+- **services/agent.py**: Microsoft Agent Framework integration — creates agent with tools, middleware, context providers, and session
+- **services/tools.py**: `@tool`-decorated function tools: `write_trip_file`, `create_trip`, `archive_trip`
+- **services/history_provider.py**: `BlobHistoryProvider` — automatic conversation persistence via framework's `HistoryProvider` (context provider pattern)
+- **services/llm.py**: Legacy Azure OpenAI integration (used when `use_agent_framework=False`)
+- **services/storage.py**: Azure Blob Storage I/O for markdown trip documents
 - **services/groupme.py**: GroupMe Bot API client with message splitting (1000-char limit)
 
 ## Data Model
@@ -23,6 +26,7 @@ Each group's trip data lives in Azure Blob Storage as markdown files:
 
 ```
 trips/{group_id}/active_trip.json          — pointer to current trip
+trips/{group_id}/session_history.json      — agent conversation history (last 40 messages)
 trips/{group_id}/{trip_id}/trip.md          — trip name, dates, participants, details
 trips/{group_id}/{trip_id}/brainstorming.md — ideas and wish-list items
 trips/{group_id}/{trip_id}/planning.md      — agreed plans (not yet booked)
@@ -31,18 +35,16 @@ trips/{group_id}/{trip_id}/itinerary.md     — confirmed plans with reservation
 
 Idempotency markers: `processed/{group_id}/msg-{id}` blobs (auto-cleaned by lifecycle policy).
 
-## LLM Response Format
+## Agent Framework
 
-The LLM always returns JSON:
-```json
-{
-  "message": "Chat reply for the group",
-  "file_updates": {"brainstorming.md": "# Full updated content...", "trip.md": null, ...}
-}
-```
-- `null` = no change to that file
-- File updates contain **complete** file content (not diffs)
-- Special lifecycle: `"new_trip": "name"` or `"archive_trip": true`
+The bot uses `agent-framework-core` and `agent-framework-openai` (v1.2.2+):
+- **Agent**: `OpenAIChatCompletionClient.as_agent()` with tools, middleware, and context providers
+- **Tools**: `@tool`-decorated async methods on `TripTools` class — the agent calls these as side effects
+- **History**: `BlobHistoryProvider` (extends `HistoryProvider`, a `ContextProvider`) — framework auto-loads/saves conversation history
+- **Session**: `agent.create_session(session_id=group_id)` — keyed by GroupMe group for conversation continuity
+- **Web search**: `SupportsWebSearchTool` protocol for live travel research
+- **Middleware**: `LoggingMiddleware` for observability
+- **Feature flag**: `use_agent_framework` in settings (default `True`); `False` routes to legacy `llm.py` path
 
 ## Build, Test, and Lint
 

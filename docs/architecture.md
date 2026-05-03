@@ -42,17 +42,22 @@ graph TB
         WH["/webhook/{secret}<br/>Webhook Router"]
         WEB["/trips<br/>Web UI Router"]
         MH["Message Handler<br/>Orchestrator"]
-        LLM["LLM Service<br/>Azure OpenAI"]
+        AGT["Agent Service<br/>Microsoft Agent Framework"]
+        TOOLS["Function Tools<br/>write_trip_file, create_trip, archive_trip"]
+        HP["BlobHistoryProvider<br/>Session Persistence"]
         AP["Attachment Processor<br/>markitdown"]
         ST["Storage Service<br/>Blob I/O"]
         GME["GroupMe Client<br/>Bot API"]
     end
 
     WH --> MH
-    MH --> ST
     MH --> AP
-    MH --> LLM
+    MH --> AGT
     MH --> GME
+    AGT --> TOOLS
+    AGT --> HP
+    TOOLS --> ST
+    HP --> ST
     WEB --> ST
 
     BLOB[(Azure Blob Storage)]
@@ -60,7 +65,7 @@ graph TB
     GAPI[GroupMe API]
 
     ST <--> BLOB
-    LLM <--> AOAI
+    AGT <--> AOAI
     AP --> AOAI
     GME --> GAPI
 ```
@@ -71,10 +76,13 @@ graph TB
 |---|---|---|
 | **Webhook Router** | `routers/webhook.py` | Receives GroupMe webhooks, validates secret, filters messages, dispatches to background processing |
 | **Web UI Router** | `routers/web.py` | Serves trip documents as a tabbed HTML page with shared-key authentication |
-| **Message Handler** | `services/message_handler.py` | Thin orchestrator: loads trip context → processes attachments → calls LLM → writes results → sends reply |
-| **LLM Service** | `services/llm.py` | Builds system prompt with trip documents, calls Azure OpenAI, parses structured JSON response |
-| **Attachment Processor** | `services/attachment_processor.py` | Downloads GroupMe file/image attachments, converts to markdown via markitdown (with OCR) |
-| **Storage Service** | `services/storage.py` | All Blob Storage I/O: trip lifecycle, document read/write, idempotency, chat history |
+| **Message Handler** | `services/message_handler.py` | Thin orchestrator: loads trip context → processes attachments → routes to agent (or legacy) → sends reply |
+| **Agent Service** | `services/agent.py` | Microsoft Agent Framework integration: creates agent with tools, middleware, context providers, and session |
+| **Function Tools** | `services/tools.py` | `@tool`-decorated functions: `write_trip_file`, `create_trip`, `archive_trip` — invoked by the agent as side effects |
+| **History Provider** | `services/history_provider.py` | `BlobHistoryProvider` extending framework's `HistoryProvider` — automatic conversation persistence via context provider pattern |
+| **LLM Service (legacy)** | `services/llm.py` | Legacy path: builds system prompt, calls Azure OpenAI directly, parses structured JSON response. Used when `use_agent_framework=False` |
+| **Attachment Processor** | `services/attachment_processor.py` | Downloads GroupMe file/image attachments, converts to markdown via markitdown (with OCR) — preprocessing step before agent |
+| **Storage Service** | `services/storage.py` | All Blob Storage I/O: trip lifecycle, document read/write, idempotency |
 | **GroupMe Client** | `services/groupme.py` | Posts bot replies via GroupMe API, handles message splitting (1000-char limit) |
 
 ## Data Architecture
@@ -85,7 +93,8 @@ graph TB
 trips/
 ├── {group_id}/
 │   ├── active_trip.json              ← Trip pointer: {"trip_id": "...", "trip_name": "..."}
-│   ├── chat_history.json             ← Rolling conversation context (last 20 messages)
+│   ├── session_history.json          ← Agent Framework conversation history (last 40 messages)
+│   ├── chat_history.json             ← Legacy conversation context (last 20 messages)
 │   ├── {trip_id}/
 │   │   ├── trip.md                   ← Destination, dates, participants, budget
 │   │   ├── brainstorming.md          ← Ideas, wish-list items, suggestions
@@ -126,49 +135,49 @@ graph LR
 | **planning.md** | Agreed | Structured by category (🏨 Lodging, ✈️ Transport, 🎯 Activities, etc.) with researched details |
 | **itinerary.md** | Confirmed | Organized by day/date with times, addresses, confirmation numbers, booking links |
 
-### LLM Response Contract
+### Agent Interaction Model
 
-Every LLM response is a JSON object:
+The bot uses the **Microsoft Agent Framework** for orchestration. The agent receives trip documents as instructions and uses function tools for side effects:
 
-```json
-{
-  "message": "Conversational reply for the group chat",
-  "file_updates": {
-    "trip.md": null,
-    "brainstorming.md": "# Full updated content...",
-    "planning.md": null,
-    "itinerary.md": null
-  }
-}
-```
+**Agent tools:**
+| Tool | Purpose |
+|---|---|
+| `write_trip_file(filename, content)` | Write complete updated content to one of the 4 trip files |
+| `create_trip(name)` | Create a new trip with initialized empty documents |
+| `archive_trip()` | Archive the current trip |
+| Web search | Live travel research via grounded web search |
 
-- `message` — Always present; the bot's chat reply
-- `file_updates` — `null` means no change; non-null is a **full file replacement** (the LLM always returns complete documents, not diffs)
-- `new_trip` — Special: triggers trip creation
-- `archive_trip` — Special: archives the current trip
+The agent's chat reply is the bot's response. File writes happen as tool call side effects during the agent run — no JSON parsing or response contract needed.
+
+**Legacy path** (when `use_agent_framework=False`): Uses a structured JSON response contract where the LLM returns `{message, file_updates}` and the message handler writes files.
 
 ## Conversation History
 
-The bot maintains a rolling window of the last 20 messages (10 exchanges) per group, stored in `chat_history.json`. This gives the LLM context for follow-up questions like "Yes, add that to the itinerary" without repeating what "that" is.
+The bot maintains conversation continuity via the Microsoft Agent Framework's `HistoryProvider` pattern. A custom `BlobHistoryProvider` persists the last 40 messages per group in `session_history.json`. The framework automatically loads history before each run and saves new messages after — no manual read/write in the message handler.
 
 ```mermaid
 sequenceDiagram
     participant User
     participant Bot
+    participant Agent as Agent Framework
     participant Storage
-    participant LLM
+    participant LLM as Azure OpenAI
 
     User->>Bot: "What about Bali in July?"
-    Bot->>Storage: Load chat history
     Bot->>Storage: Load trip documents
-    Bot->>LLM: [system prompt + trip docs] + [history] + [user message]
-    LLM-->>Bot: {message, file_updates}
-    Bot->>Storage: Save updated docs
-    Bot->>Storage: Append user+assistant to history
+    Bot->>Agent: agent.run(message, session)
+    Agent->>Storage: BlobHistoryProvider.get_messages()
+    Note over Agent: History loaded automatically<br/>as context provider
+    Agent->>LLM: Instructions + history + user message
+    LLM-->>Agent: Response (+ tool calls)
+    Agent->>Storage: BlobHistoryProvider.save_messages()
+    Agent-->>Bot: Result text
     Bot-->>User: "Great idea! Bali in July is..."
     User->>Bot: "Add that to brainstorming"
-    Note over Bot: History includes prior exchange,<br/>so "that" = Bali in July
+    Note over Agent: History includes prior exchange,<br/>so "that" = Bali in July
 ```
+
+**Legacy path** (when `use_agent_framework=False`): Falls back to manual `chat_history.json` read/write with the last 20 messages.
 
 ## Attachment Processing
 
@@ -194,13 +203,15 @@ graph LR
 
 ## Request Lifecycle
 
-Complete flow for a webhook message:
+Complete flow for a webhook message (agent framework path):
 
 ```mermaid
 sequenceDiagram
     participant GM as GroupMe
     participant WH as Webhook Router
     participant MH as Message Handler
+    participant Agent as Agent Framework
+    participant HP as BlobHistoryProvider
     participant ST as Storage
     participant AP as Attachment Processor
     participant LLM as Azure OpenAI
@@ -214,7 +225,6 @@ sequenceDiagram
 
     MH->>ST: Check idempotency (msg already processed?)
     MH->>ST: Load active trip + 4 markdown files
-    MH->>ST: Load chat history
 
     opt Has attachments
         MH->>AP: Process attachments
@@ -223,20 +233,21 @@ sequenceDiagram
         AP-->>MH: Extracted markdown text
     end
 
-    MH->>MH: Acquire per-group lock
-    MH->>LLM: System prompt + trip docs + history + user message
-    LLM-->>MH: {message, file_updates}
+    MH->>Agent: agent.run(message, session)
+    Agent->>HP: get_messages() — load conversation history
+    HP->>ST: Read session_history.json
+    Agent->>LLM: Instructions + history + user message
+    LLM-->>Agent: Response + tool calls
 
-    alt New trip
-        MH->>ST: Create trip (init 4 empty docs)
-    else Archive trip
-        MH->>ST: Delete active_trip.json
-    else File updates
-        MH->>ST: Write updated markdown files
+    opt Tool calls (file writes, trip lifecycle)
+        Agent->>ST: write_trip_file / create_trip / archive_trip
     end
 
+    Agent->>HP: save_messages() — persist new messages
+    HP->>ST: Write session_history.json
+    Agent-->>MH: Result text
+
     MH->>ST: Mark message processed (idempotency)
-    MH->>ST: Save chat history (append + trim)
     MH->>API: POST bot reply
     API-->>GM: Message appears in chat
 ```
