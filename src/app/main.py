@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from contextlib import asynccontextmanager
 
 from azure.identity.aio import DefaultAzureCredential
@@ -14,7 +15,12 @@ from slowapi.util import get_remote_address
 from app.config import get_settings
 from app.routers import web, webhook
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s %(name)s: %(message)s",
+    stream=sys.stderr,
+    force=True,
+)
 
 limiter = Limiter(key_func=get_remote_address)
 

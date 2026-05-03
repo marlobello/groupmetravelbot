@@ -18,6 +18,8 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 
 COPY src/ .
 
+ENV PYTHONUNBUFFERED=1
+
 EXPOSE 8000
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info"]
