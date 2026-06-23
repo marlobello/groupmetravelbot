@@ -68,8 +68,8 @@ async def test_non_triggered_message(client, mock_app_state):
 
 
 @pytest.mark.asyncio
-@patch("app.routers.webhook.handle_message")
-async def test_triggered_message_returns_processing(mock_handle, client, mock_app_state):
+@patch("app.routers.webhook.handle_message", new_callable=AsyncMock)
+async def test_triggered_message_returns_processed(mock_handle, client, mock_app_state):
     payload = {
         "id": "msg3",
         "group_id": "g1",
@@ -81,7 +81,9 @@ async def test_triggered_message_returns_processing(mock_handle, client, mock_ap
     }
     response = await client.post("/webhook/test-secret-token", json=payload)
     assert response.status_code == 200
-    assert response.json() == {"status": "processing"}
+    assert response.json() == {"status": "processed"}
+    # Processed synchronously (awaited), not deferred to a background task.
+    mock_handle.assert_awaited_once()
 
 
 @pytest.mark.asyncio

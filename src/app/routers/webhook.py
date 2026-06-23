@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import secrets
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
@@ -26,7 +26,6 @@ async def groupme_callback(
     secret: str,
     message: GroupMeMessage,
     request: Request,
-    background_tasks: BackgroundTasks,
 ):
     settings = request.app.state.settings
 
@@ -46,12 +45,14 @@ async def groupme_callback(
         return {"status": "not_triggered"}
 
     logger.info("Triggered! Processing message from %s", message.name)
-    # Process in background — return 200 immediately
-    background_tasks.add_task(
-        handle_message,
+    # Process synchronously (do NOT use BackgroundTasks): keeping the request
+    # in flight ensures Container Apps doesn't scale the replica to zero
+    # mid-processing while minReplicas is 0. handle_message swallows its own
+    # errors and replies to the group, so this always returns 200 quickly.
+    await handle_message(
         message=message,
         blob_container=request.app.state.blob_container,
         credential=request.app.state.credential,
         settings=settings,
     )
-    return {"status": "processing"}
+    return {"status": "processed"}

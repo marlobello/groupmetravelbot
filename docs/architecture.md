@@ -74,7 +74,7 @@ graph TB
 
 | Component | File | Role |
 |---|---|---|
-| **Webhook Router** | `routers/webhook.py` | Receives GroupMe webhooks, validates secret, filters messages, dispatches to background processing |
+| **Webhook Router** | `routers/webhook.py` | Receives GroupMe webhooks, validates secret, filters messages, processes synchronously (keeps the replica alive while `minReplicas: 0`) |
 | **Web UI Router** | `routers/web.py` | Serves trip documents as a tabbed HTML page with shared-key authentication |
 | **Message Handler** | `services/message_handler.py` | Thin orchestrator: loads trip context → processes attachments → routes to agent (or legacy) → sends reply |
 | **Agent Service** | `services/agent.py` | Microsoft Agent Framework integration: creates agent with tools, middleware, context providers, and session |
@@ -220,10 +220,9 @@ sequenceDiagram
     GM->>WH: POST /webhook/{secret}
     WH->>WH: Validate secret (constant-time)
     WH->>WH: Filter: ignore bots, require @sensei
-    WH-->>GM: 200 OK (immediate)
-    WH->>MH: Background task
+    WH->>MH: Process synchronously (await)
 
-    MH->>ST: Check idempotency (msg already processed?)
+    MH->>ST: Claim idempotency marker (atomic, skip duplicates)
     MH->>ST: Load active trip + 4 markdown files
 
     opt Has attachments
@@ -247,7 +246,8 @@ sequenceDiagram
     HP->>ST: Write session_history.json
     Agent-->>MH: Result text
 
-    MH->>ST: Mark message processed (idempotency)
     MH->>API: POST bot reply
     API-->>GM: Message appears in chat
+    MH-->>WH: Done
+    WH-->>GM: 200 OK
 ```

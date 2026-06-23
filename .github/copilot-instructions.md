@@ -11,12 +11,11 @@ GroupMe webhook POST → Azure Container Apps (FastAPI/Python) → read trip doc
 **Design philosophy**: The agent does the heavy lifting (conversation, research, document editing via tools). Python is a thin facilitator for I/O.
 
 Key components in `src/app/`:
-- **routers/webhook.py**: Receives GroupMe callbacks, returns 200 immediately, processes in background
-- **services/message_handler.py**: Thin orchestrator — idempotency check → read blobs → route to agent (or legacy) → send reply
+- **routers/webhook.py**: Receives GroupMe callbacks, validates the secret, and processes synchronously (awaits the handler so Container Apps keeps the replica alive while `minReplicas: 0`)
+- **services/message_handler.py**: Thin orchestrator — atomic idempotency claim (under per-group lock) → read blobs → route to agent → send reply
 - **services/agent.py**: Microsoft Agent Framework integration — creates agent with tools, middleware, context providers, and session
 - **services/tools.py**: `@tool`-decorated function tools: `write_trip_file`, `create_trip`, `archive_trip`
 - **services/history_provider.py**: `BlobHistoryProvider` — automatic conversation persistence via framework's `HistoryProvider` (context provider pattern)
-- **services/llm.py**: Legacy Azure OpenAI integration (used when `use_agent_framework=False`)
 - **services/storage.py**: Azure Blob Storage I/O for markdown trip documents
 - **services/groupme.py**: GroupMe Bot API client with message splitting (1000-char limit)
 
@@ -42,9 +41,8 @@ The bot uses `agent-framework-core` and `agent-framework-openai` (v1.2.2+):
 - **Tools**: `@tool`-decorated async methods on `TripTools` class — the agent calls these as side effects
 - **History**: `BlobHistoryProvider` (extends `HistoryProvider`, a `ContextProvider`) — framework auto-loads/saves conversation history
 - **Session**: `agent.create_session(session_id=group_id)` — keyed by GroupMe group for conversation continuity
-- **Web search**: `SupportsWebSearchTool` protocol for live travel research
 - **Middleware**: `LoggingMiddleware` for observability
-- **Feature flag**: `use_agent_framework` in settings (default `True`); `False` routes to legacy `llm.py` path
+- **Client reuse**: `agent.py` caches the `OpenAIChatCompletionClient` per credential/endpoint/deployment/api-version instead of rebuilding it per message
 
 ## Build, Test, and Lint
 
@@ -83,9 +81,9 @@ Modules: identity, openai, storage, container-apps. All services use managed ide
 ## Key Conventions
 
 - **Async everywhere**: All service functions are async. Use `azure.storage.blob.aio` and `azure.identity.aio`.
-- **Background processing**: Webhook returns 200 immediately; work happens in `BackgroundTasks`.
+- **Synchronous processing**: The webhook `await`s `handle_message` and returns 200 only after the reply is sent. This is deliberate: it keeps the request in flight so Container Apps does not scale the replica to zero mid-processing while `minReplicas: 0`. Do not reintroduce `BackgroundTasks`.
 - **LLM-first**: The LLM reads and writes trip documents directly. Python handles I/O only.
-- **Concurrency**: Per-group `asyncio.Lock` serialises writes within the same replica. Blob versioning provides rollback safety.
-- **Idempotency**: Persistent blob-based markers (`processed/` prefix) with lifecycle auto-cleanup.
+- **Concurrency**: Per-group `asyncio.Lock` serialises processing within the same replica. Blob versioning provides rollback safety.
+- **Idempotency**: `storage.claim_message_processed` does an atomic conditional PUT (`overwrite=False`) on a `processed/{group_id}/msg-{id}` marker under the per-group lock before processing, so duplicate webhook deliveries are skipped. Markers are auto-cleaned by a lifecycle policy.
 - **No secrets in code**: All config via environment variables or managed identity. See `.env.example`.
 - **Filename whitelist**: Only 4 valid filenames accepted for writes: `trip.md`, `brainstorming.md`, `planning.md`, `itinerary.md`.
