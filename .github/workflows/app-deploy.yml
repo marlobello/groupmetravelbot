@@ -1,12 +1,10 @@
 name: Deploy Application
 
+# Reusable workflow: called by deploy.yml (and runnable manually). It is NOT
+# triggered directly by push — deploy.yml is the single push entry point, which
+# prevents two concurrent app deployments racing on `az containerapp update`.
+
 on:
-  push:
-    branches: [main]
-    paths:
-      - "src/**"
-      - "Dockerfile"
-      - "pyproject.toml"
   workflow_call:
     inputs:
       environment-name:
@@ -24,6 +22,10 @@ permissions:
   id-token: write
   contents: read
   packages: write
+
+concurrency:
+  group: app-deploy-${{ inputs.environment-name || 'travelbot' }}
+  cancel-in-progress: false
 
 env:
   ENVIRONMENT_NAME: ${{ inputs.environment-name || 'travelbot' }}
@@ -82,7 +84,17 @@ jobs:
 
       - name: Update Container App
         run: |
-          az containerapp update \
-            -n "${{ steps.infra.outputs.containerAppName }}" \
-            -g "$RESOURCE_GROUP" \
-            --image "${GHCR_IMAGE}:${{ github.sha }}"
+          set -euo pipefail
+          IMAGE="${GHCR_IMAGE}:${{ github.sha }}"
+          NAME="${{ steps.infra.outputs.containerAppName }}"
+          # Retry to absorb transient control-plane races/throttling.
+          for attempt in 1 2 3; do
+            if az containerapp update -n "$NAME" -g "$RESOURCE_GROUP" --image "$IMAGE"; then
+              echo "Container App updated to $IMAGE"
+              exit 0
+            fi
+            echo "::warning::Update attempt $attempt failed; retrying in 20s..."
+            sleep 20
+          done
+          echo "::error::Container App update failed after 3 attempts"
+          exit 1
