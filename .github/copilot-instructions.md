@@ -2,11 +2,11 @@
 
 ## Project Overview
 
-GroupMe Travel Bot ("Sensei") — a Python FastAPI application that lives in a GroupMe group chat and helps members collaboratively plan vacations. It uses the **Microsoft Agent Framework** with Azure OpenAI as the intelligence layer and Azure Blob Storage for persistent markdown-based trip documents.
+GroupMe Travel Bot ("Sensei") — a Python FastAPI application that lives in a GroupMe group chat and helps members collaboratively plan vacations. It uses the **Microsoft Agent Framework** against the **Microsoft Foundry Agent Service** (project `sensei`, model gpt-4.1) as the intelligence layer, with the hosted Web Search tool for live grounding, and Azure Blob Storage for persistent markdown-based trip documents.
 
 ## Architecture
 
-GroupMe webhook POST → Azure Container Apps (FastAPI/Python) → read trip docs from Blob Storage → Microsoft Agent Framework (OpenAI agent with function tools, web search, session persistence) → tools handle document writes as side effects → reply via GroupMe Bot API.
+GroupMe webhook POST → Azure Container Apps (FastAPI/Python) → read trip docs from Blob Storage → Microsoft Agent Framework (Foundry Agent Service agent with function tools, hosted Web Search, session persistence) → tools handle document writes as side effects → reply via GroupMe Bot API.
 
 **Design philosophy**: The agent does the heavy lifting (conversation, research, document editing via tools). Python is a thin facilitator for I/O.
 
@@ -36,13 +36,15 @@ Idempotency markers: `processed/{group_id}/msg-{id}` blobs (auto-cleaned by life
 
 ## Agent Framework
 
-The bot uses `agent-framework-core` and `agent-framework-openai` (v1.2.2+):
-- **Agent**: `OpenAIChatCompletionClient.as_agent()` with tools, middleware, and context providers
+The bot uses `agent-framework-core`, `agent-framework-openai`, and `agent-framework-foundry` (v1.2.2+):
+- **Agent**: `FoundryChatClient.as_agent()` (Foundry Agent Service via the OpenAI Responses API on the `sensei` project) with tools, middleware, and context providers
 - **Tools**: `@tool`-decorated async methods on `TripTools` class — the agent calls these as side effects
+- **Web Search**: hosted `FoundryChatClient.get_web_search_tool(...)`, gated by `enable_web_search`, for live travel grounding
 - **History**: `BlobHistoryProvider` (extends `HistoryProvider`, a `ContextProvider`) — framework auto-loads/saves conversation history
 - **Session**: `agent.create_session(session_id=group_id)` — keyed by GroupMe group for conversation continuity
 - **Middleware**: `LoggingMiddleware` for observability
-- **Client reuse**: `agent.py` caches the `OpenAIChatCompletionClient` per credential/endpoint/deployment/api-version instead of rebuilding it per message
+- **Client reuse**: `agent.py` caches the `FoundryChatClient` per credential/project-endpoint/model instead of rebuilding it per message
+- **Endpoints**: `FOUNDRY_PROJECT_ENDPOINT` (Agent Service chat) and `AZURE_OPENAI_ENDPOINT` (attachment OCR) both point at the `sensei-resource` Foundry account; the managed identity needs the **Foundry User** and **Cognitive Services OpenAI User** roles on it (see `infra/modules/foundry-access.bicep`)
 
 ## Build, Test, and Lint
 

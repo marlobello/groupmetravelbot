@@ -25,6 +25,18 @@ param customDomainName string = 'sensei.dotheneedful.dev'
 @description('Name of existing managed certificate in the environment.')
 param managedCertificateName string = 'mc-travelbot-env--sensei-dotheneed-9347'
 
+@description('Microsoft Foundry project endpoint (Agent Service) — the bot\'s chat backend.')
+param foundryProjectEndpoint string = 'https://sensei-resource.services.ai.azure.com/api/projects/sensei'
+
+@description('Azure OpenAI endpoint on the Foundry account (used for attachment OCR).')
+param foundryOpenAiEndpoint string = 'https://sensei-resource.openai.azure.com/'
+
+@description('Name of the existing Microsoft Foundry (AIServices) account.')
+param foundryAccountName string = 'sensei-resource'
+
+@description('Resource group of the existing Microsoft Foundry account.')
+param foundryResourceGroup string = 'rg-foundry'
+
 var resourceToken = uniqueString(resourceGroup().id)
 
 // ─── Managed Identity ────────────────────────────────────────────────
@@ -56,6 +68,18 @@ module storage 'modules/storage.bicep' = {
   }
 }
 
+// ─── Foundry project access (cross-RG RBAC) ──────────────────────────
+// Grants the bot's managed identity access to the existing Foundry account
+// (Agent Service + Web Search, and OpenAI inference for attachment OCR).
+module foundryAccess 'modules/foundry-access.bicep' = {
+  name: 'foundry-access'
+  scope: resourceGroup(foundryResourceGroup)
+  params: {
+    foundryAccountName: foundryAccountName
+    managedIdentityPrincipalId: identity.outputs.managedIdentityPrincipalId
+  }
+}
+
 // ─── Container Apps ──────────────────────────────────────────────────
 module containerApps 'modules/container-apps.bicep' = {
   name: 'container-apps'
@@ -66,7 +90,8 @@ module containerApps 'modules/container-apps.bicep' = {
     containerImage: containerImage
     managedIdentityId: identity.outputs.managedIdentityId
     managedIdentityClientId: identity.outputs.managedIdentityClientId
-    openaiEndpoint: openai.outputs.openaiEndpoint
+    openaiEndpoint: foundryOpenAiEndpoint
+    foundryProjectEndpoint: foundryProjectEndpoint
     storageAccountName: storage.outputs.storageAccountName
     groupmeBotId: groupmeBotId
     webhookSecret: webhookSecret

@@ -33,6 +33,8 @@ def mock_settings():
     s = MagicMock()
     s.azure_openai_endpoint = "https://fake.openai.azure.com/"
     s.azure_openai_deployment = "gpt-4.1"
+    s.foundry_project_endpoint = "https://sensei-resource.services.ai.azure.com/api/projects/sensei"
+    s.enable_web_search = False
     return s
 
 
@@ -50,7 +52,7 @@ class TestGetAgentResponse:
     """Test the get_agent_response function."""
 
     @pytest.mark.asyncio
-    @patch("app.services.agent.OpenAIChatCompletionClient")
+    @patch("app.services.agent.FoundryChatClient")
     async def test_basic_response(
         self, mock_client_cls, mock_credential, mock_settings, trip_files
     ):
@@ -81,7 +83,7 @@ class TestGetAgentResponse:
         assert "What should we do in Rome?" in call_args
 
     @pytest.mark.asyncio
-    @patch("app.services.agent.OpenAIChatCompletionClient")
+    @patch("app.services.agent.FoundryChatClient")
     async def test_no_trip_uses_no_trip_prompt(
         self, mock_client_cls, mock_credential, mock_settings
     ):
@@ -110,7 +112,7 @@ class TestGetAgentResponse:
         assert "no active trip" in agent_kwargs["instructions"]
 
     @pytest.mark.asyncio
-    @patch("app.services.agent.OpenAIChatCompletionClient")
+    @patch("app.services.agent.FoundryChatClient")
     async def test_session_used_with_group_id(
         self, mock_client_cls, mock_credential, mock_settings, trip_files
     ):
@@ -147,7 +149,7 @@ class TestGetAgentResponse:
         assert run_kwargs["session"] == mock_session
 
     @pytest.mark.asyncio
-    @patch("app.services.agent.OpenAIChatCompletionClient")
+    @patch("app.services.agent.FoundryChatClient")
     async def test_tools_provided_with_blob_container(
         self, mock_client_cls, mock_credential, mock_settings, trip_files
     ):
@@ -175,13 +177,52 @@ class TestGetAgentResponse:
             trip_id="t1",
         )
 
-        # Verify tools were passed to as_agent
+        # Verify the 3 function tools were passed to as_agent (web search disabled here)
         agent_kwargs = mock_client.as_agent.call_args[1]
         assert agent_kwargs["tools"] is not None
         assert len(agent_kwargs["tools"]) == 3
 
     @pytest.mark.asyncio
-    @patch("app.services.agent.OpenAIChatCompletionClient")
+    @patch("app.services.agent.FoundryChatClient")
+    async def test_web_search_tool_added_when_enabled(
+        self, mock_client_cls, mock_credential, mock_settings, trip_files
+    ):
+        """With web search enabled, the hosted Web Search tool is registered first."""
+        mock_settings.enable_web_search = True
+
+        mock_result = MagicMock()
+        mock_result.text = "Here's a current option."
+
+        mock_agent = MagicMock()
+        mock_agent.run = AsyncMock(return_value=mock_result)
+
+        mock_client = MagicMock()
+        mock_client.as_agent = MagicMock(return_value=mock_agent)
+        mock_client_cls.return_value = mock_client
+        web_tool = MagicMock(name="web_search_tool")
+        mock_client_cls.get_web_search_tool = MagicMock(return_value=web_tool)
+
+        mock_container = AsyncMock()
+
+        await get_agent_response(
+            credential=mock_credential,
+            settings=mock_settings,
+            user_message="What's the weather in Lisbon right now?",
+            user_name="Alice",
+            trip_files=trip_files,
+            blob_container=mock_container,
+            group_id="g1",
+            trip_id="t1",
+        )
+
+        mock_client_cls.get_web_search_tool.assert_called_once()
+        tools = mock_client.as_agent.call_args[1]["tools"]
+        # web search tool + 3 function tools
+        assert len(tools) == 4
+        assert tools[0] is web_tool
+
+    @pytest.mark.asyncio
+    @patch("app.services.agent.FoundryChatClient")
     async def test_error_returns_fallback_message(
         self, mock_client_cls, mock_credential, mock_settings, trip_files
     ):
@@ -204,7 +245,7 @@ class TestGetAgentResponse:
         assert "try again" in result["message"].lower()
 
     @pytest.mark.asyncio
-    @patch("app.services.agent.OpenAIChatCompletionClient")
+    @patch("app.services.agent.FoundryChatClient")
     async def test_rate_limit_returns_friendly_message(
         self, mock_client_cls, mock_credential, mock_settings, trip_files
     ):

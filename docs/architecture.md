@@ -20,7 +20,7 @@ graph LR
     Users <-->|Chat Messages| GM
     GM -->|Webhook POST| ACA
     ACA -->|Bot API POST| GM
-    ACA <-->|Chat Completions| OpenAI
+    ACA <-->|Responses API + Web Search| OpenAI
     ACA <-->|Read/Write Markdown| Blob
 ```
 

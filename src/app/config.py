@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     azure_openai_endpoint: str
     azure_openai_deployment: str = "gpt-4.1"
     azure_openai_api_version: str = "2024-12-01-preview"
+    foundry_project_endpoint: str = ""
     storage_account_name: str
     storage_container_name: str = "trips"
     groupme_bot_id: str
@@ -18,7 +19,7 @@ class Settings(BaseSettings):
     azure_client_id: str | None = None
     webhook_secret: str = ""
     web_access_key: str = ""
-    enable_web_search: bool = False  # Not supported by Azure OpenAI Chat Completions
+    enable_web_search: bool = True  # Foundry Agent Service hosted Web Search tool
 
 
 @lru_cache

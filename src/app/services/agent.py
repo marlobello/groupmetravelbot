@@ -1,8 +1,10 @@
 """Agent service — Microsoft Agent Framework integration for the travel bot.
 
-Uses the hybrid approach:
+Uses the Microsoft Foundry Agent Service (via the OpenAI Responses API on the
+Foundry project) with the hybrid approach:
 - Trip documents are injected into the system prompt (fast reads)
 - Function tools handle writes (create/write/archive trips)
+- The hosted Web Search tool grounds replies in live public web data
 """
 
 from __future__ import annotations
@@ -11,7 +13,7 @@ import logging
 import time
 
 from agent_framework import AgentMiddleware
-from agent_framework.openai import OpenAIChatCompletionClient
+from agent_framework_foundry import FoundryChatClient
 from azure.identity.aio import DefaultAzureCredential
 from azure.storage.blob.aio import ContainerClient
 
@@ -21,26 +23,24 @@ from app.services.tools import TripTools
 
 logger = logging.getLogger(__name__)
 
-# Cache one chat client per (credential, endpoint, deployment, api_version) so we
-# don't rebuild the underlying HTTP/SDK client on every message.
-_client_cache: dict[tuple, OpenAIChatCompletionClient] = {}
+# Cache one Foundry chat client per (credential, project endpoint, model) so we
+# don't rebuild the underlying AIProjectClient/SDK client on every message.
+_client_cache: dict[tuple, FoundryChatClient] = {}
 
 
 def _get_client(
     credential: DefaultAzureCredential,
-    endpoint: str,
-    deployment: str,
-    api_version: str,
-) -> OpenAIChatCompletionClient:
-    """Return a cached OpenAIChatCompletionClient, creating it on first use."""
-    key = (id(credential), endpoint, deployment, api_version)
+    project_endpoint: str,
+    model: str,
+) -> FoundryChatClient:
+    """Return a cached FoundryChatClient, creating it on first use."""
+    key = (id(credential), project_endpoint, model)
     client = _client_cache.get(key)
     if client is None:
-        client = OpenAIChatCompletionClient(
-            model=deployment,
-            azure_endpoint=endpoint,
+        client = FoundryChatClient(
+            project_endpoint=project_endpoint,
+            model=model,
             credential=credential,
-            api_version=api_version,
         )
         _client_cache[key] = client
     return client
@@ -195,8 +195,10 @@ async def get_agent_response(
     else:
         instructions = NO_TRIP_PROMPT
 
-    # Build tools
+    # Build tools — hosted Web Search (Foundry Agent Service) plus our function tools
     tools_list: list = []
+    if settings.enable_web_search:
+        tools_list.append(FoundryChatClient.get_web_search_tool(search_context_size="medium"))
     trip_tools = None
     if blob_container:
         trip_tools = TripTools(
@@ -204,7 +206,7 @@ async def get_agent_response(
             group_id=group_id,
             trip_id=trip_id,
         )
-        tools_list = [
+        tools_list += [
             trip_tools.write_trip_file,
             trip_tools.create_trip,
             trip_tools.archive_trip,
@@ -219,12 +221,11 @@ async def get_agent_response(
         )
         context_providers.append(history_provider)
 
-    # Create (or reuse) the agent client
+    # Create (or reuse) the Foundry project client
     client = _get_client(
         credential,
-        settings.azure_openai_endpoint,
+        settings.foundry_project_endpoint,
         settings.azure_openai_deployment,
-        settings.azure_openai_api_version,
     )
 
     agent = client.as_agent(

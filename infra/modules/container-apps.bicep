@@ -25,6 +25,9 @@ param managedIdentityClientId string
 @description('Azure OpenAI account endpoint.')
 param openaiEndpoint string
 
+@description('Microsoft Foundry project endpoint (Agent Service) for the chat backend.')
+param foundryProjectEndpoint string
+
 @description('Storage account name.')
 param storageAccountName string
 
@@ -144,12 +147,16 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
               value: openaiEndpoint
             }
             {
+              name: 'FOUNDRY_PROJECT_ENDPOINT'
+              value: foundryProjectEndpoint
+            }
+            {
               name: 'AZURE_OPENAI_DEPLOYMENT'
               value: 'gpt-4.1'
             }
             {
               name: 'ENABLE_WEB_SEARCH'
-              value: 'false'
+              value: 'true'
             }
             {
               name: 'STORAGE_ACCOUNT_NAME'

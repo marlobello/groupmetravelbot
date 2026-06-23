@@ -23,6 +23,7 @@ dependencies = [
     "markitdown-ocr>=0.0.1",
     "agent-framework-core>=1.2.2",
     "agent-framework-openai>=1.2.2",
+    "agent-framework-foundry>=1.2.2",
 ]
 
 [project.optional-dependencies]
