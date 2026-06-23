@@ -9,6 +9,16 @@ import pytest
 from app.services.agent import get_agent_response
 
 
+@pytest.fixture(autouse=True)
+def _clear_client_cache():
+    """Ensure the module-level client cache doesn't leak between tests."""
+    from app.services import agent
+
+    agent._client_cache.clear()
+    yield
+    agent._client_cache.clear()
+
+
 @pytest.fixture
 def mock_credential():
     cred = AsyncMock()

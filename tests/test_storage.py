@@ -4,7 +4,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from azure.core.exceptions import ResourceNotFoundError
+from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
 
 from app.services import storage
 
@@ -165,36 +165,30 @@ async def test_write_trip_file_invalid_name():
 
 
 @pytest.mark.asyncio
-async def test_check_message_processed_true():
+async def test_claim_message_processed_new():
+    """A brand-new message is claimed successfully (returns True)."""
     blob_client = AsyncMock()
-    blob_client.get_blob_properties = AsyncMock(return_value={})
+    blob_client.upload_blob = AsyncMock(return_value=None)
     container = AsyncMock()
     container.get_blob_client = MagicMock(return_value=blob_client)
 
-    result = await storage.check_message_processed(container, "g1", "123")
+    result = await storage.claim_message_processed(container, "g1", "123")
     assert result is True
-
-
-@pytest.mark.asyncio
-async def test_check_message_processed_false():
-    blob_client = AsyncMock()
-    blob_client.get_blob_properties = AsyncMock(side_effect=ResourceNotFoundError("Not found"))
-    container = AsyncMock()
-    container.get_blob_client = MagicMock(return_value=blob_client)
-
-    result = await storage.check_message_processed(container, "g1", "123")
-    assert result is False
-
-
-@pytest.mark.asyncio
-async def test_mark_message_processed():
-    blob_client = AsyncMock()
-    container = AsyncMock()
-    container.get_blob_client = MagicMock(return_value=blob_client)
-
-    await storage.mark_message_processed(container, "g1", "123")
-    blob_client.upload_blob.assert_called_once()
     container.get_blob_client.assert_called_with("processed/g1/msg-123")
+    # Must be a conditional create (overwrite=False), not an unconditional put.
+    assert blob_client.upload_blob.call_args.kwargs["overwrite"] is False
+
+
+@pytest.mark.asyncio
+async def test_claim_message_processed_duplicate():
+    """A message whose marker already exists returns False (duplicate)."""
+    blob_client = AsyncMock()
+    blob_client.upload_blob = AsyncMock(side_effect=ResourceExistsError("exists"))
+    container = AsyncMock()
+    container.get_blob_client = MagicMock(return_value=blob_client)
+
+    result = await storage.claim_message_processed(container, "g1", "123")
+    assert result is False
 
 
 # ── group_lock ────────────────────────────────────────────────────────
@@ -208,85 +202,3 @@ def test_get_group_lock_returns_same_lock():
 
     lock3 = storage._get_group_lock("g2")
     assert lock3 is not lock1
-
-
-# ── chat_history ──────────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_read_chat_history_found():
-    history = [
-        {"role": "user", "content": "Alice: what about Rome?"},
-        {"role": "assistant", "content": "Rome sounds great!"},
-    ]
-    blob_client = AsyncMock()
-    download = AsyncMock()
-    download.readall = AsyncMock(return_value=json.dumps(history).encode())
-    blob_client.download_blob = AsyncMock(return_value=download)
-
-    container = AsyncMock()
-    container.get_blob_client = MagicMock(return_value=blob_client)
-
-    result = await storage.read_chat_history(container, "g1")
-    assert result == history
-    container.get_blob_client.assert_called_once_with("trips/g1/chat_history.json")
-
-
-@pytest.mark.asyncio
-async def test_read_chat_history_not_found():
-    blob_client = AsyncMock()
-    blob_client.download_blob = AsyncMock(side_effect=ResourceNotFoundError("Not found"))
-
-    container = AsyncMock()
-    container.get_blob_client = MagicMock(return_value=blob_client)
-
-    result = await storage.read_chat_history(container, "g1")
-    assert result == []
-
-
-@pytest.mark.asyncio
-async def test_read_chat_history_trims_to_max():
-    """History with more than MAX entries gets trimmed on read."""
-    history = [{"role": "user", "content": f"msg-{i}"} for i in range(30)]
-    blob_client = AsyncMock()
-    download = AsyncMock()
-    download.readall = AsyncMock(return_value=json.dumps(history).encode())
-    blob_client.download_blob = AsyncMock(return_value=download)
-
-    container = AsyncMock()
-    container.get_blob_client = MagicMock(return_value=blob_client)
-
-    result = await storage.read_chat_history(container, "g1")
-    assert len(result) == storage.MAX_HISTORY_MESSAGES
-    assert result[0]["content"] == "msg-10"
-
-
-@pytest.mark.asyncio
-async def test_write_chat_history():
-    history = [
-        {"role": "user", "content": "Alice: what about Rome?"},
-        {"role": "assistant", "content": "Rome sounds great!"},
-    ]
-    blob_client = AsyncMock()
-    container = AsyncMock()
-    container.get_blob_client = MagicMock(return_value=blob_client)
-
-    await storage.write_chat_history(container, "g1", history)
-
-    blob_client.upload_blob.assert_called_once()
-    container.get_blob_client.assert_called_with("trips/g1/chat_history.json")
-
-
-@pytest.mark.asyncio
-async def test_write_chat_history_trims():
-    """Writing more than MAX entries trims from the front."""
-    history = [{"role": "user", "content": f"msg-{i}"} for i in range(30)]
-    blob_client = AsyncMock()
-    container = AsyncMock()
-    container.get_blob_client = MagicMock(return_value=blob_client)
-
-    await storage.write_chat_history(container, "g1", history)
-
-    written = json.loads(blob_client.upload_blob.call_args[0][0])
-    assert len(written) == storage.MAX_HISTORY_MESSAGES
-    assert written[0]["content"] == "msg-10"

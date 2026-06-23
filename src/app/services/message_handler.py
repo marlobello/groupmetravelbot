@@ -1,4 +1,4 @@
-"""Message handler — thin orchestrator between GroupMe, Blob Storage, and Azure OpenAI."""
+"""Message handler — thin orchestrator between GroupMe, Blob Storage, and the agent."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from azure.storage.blob.aio import ContainerClient
 from app.config import Settings
 from app.models.groupme import GroupMeMessage
 from app.services import agent as agent_service
-from app.services import attachment_processor, groupme, llm, storage
+from app.services import attachment_processor, groupme, storage
 
 logger = logging.getLogger(__name__)
 
@@ -21,90 +21,74 @@ async def handle_message(
     credential: DefaultAzureCredential,
     settings: Settings,
 ) -> None:
-    """Process an incoming GroupMe message."""
+    """Process an incoming GroupMe message.
+
+    The per-group lock serialises processing within a replica, and the atomic
+    idempotency claim (see ``storage.claim_message_processed``) guards against
+    duplicate webhook deliveries both within and across replicas.
+    """
     try:
-        # Idempotency check
-        if await storage.check_message_processed(blob_container, message.group_id, message.id):
-            logger.info("Message %s already processed, skipping", message.id)
-            return
+        async with storage._get_group_lock(message.group_id):
+            # Atomically claim the message — skips duplicate deliveries.
+            claimed = await storage.claim_message_processed(
+                blob_container, message.group_id, message.id
+            )
+            if not claimed:
+                logger.info("Message %s already processed, skipping", message.id)
+                return
 
-        logger.info(
-            "Processing message %s from group %s (length=%d, attachments=%d)",
-            message.id,
-            message.group_id,
-            len(message.text or ""),
-            len(message.attachments) if message.attachments else 0,
-        )
-
-        # Strip trigger keyword for cleaner LLM input
-        clean_text = (
-            message.text.replace(settings.bot_trigger_keyword, "").strip() if message.text else ""
-        )
-
-        # Load active trip + documents
-        active = await storage.get_active_trip(blob_container, message.group_id)
-        trip_files: dict[str, str] | None = None
-        if active:
-            trip_files = await storage.read_trip_files(
-                blob_container, message.group_id, active["trip_id"]
+            logger.info(
+                "Processing message %s from group %s (length=%d, attachments=%d)",
+                message.id,
+                message.group_id,
+                len(message.text or ""),
+                len(message.attachments) if message.attachments else 0,
             )
 
-        # Load conversation history (only needed for legacy path)
-        chat_history = None
-        if not settings.use_agent_framework:
-            chat_history = await storage.read_chat_history(blob_container, message.group_id)
-
-        # Process any file/image attachments
-        attachment_text = None
-        if message.attachments:
-            attachment_text = await attachment_processor.process_attachments(
-                message.attachments, settings, credential
+            # Strip trigger keyword for cleaner agent input
+            clean_text = (
+                message.text.replace(settings.bot_trigger_keyword, "").strip()
+                if message.text
+                else ""
             )
 
-        # Build the full user message for the LLM
-        llm_message = clean_text
-        if attachment_text:
-            llm_message = f"{clean_text}\n\n{attachment_text}" if clean_text else attachment_text
+            # Load active trip + documents
+            active = await storage.get_active_trip(blob_container, message.group_id)
+            trip_files: dict[str, str] | None = None
+            if active:
+                trip_files = await storage.read_trip_files(
+                    blob_container, message.group_id, active["trip_id"]
+                )
 
-        # Route to agent framework or legacy path
-        if settings.use_agent_framework:
-            result = await _handle_with_agent(
+            # Process any file/image attachments
+            attachment_text = None
+            if message.attachments:
+                attachment_text = await attachment_processor.process_attachments(
+                    message.attachments, settings, credential
+                )
+
+            # Build the full user message for the agent
+            agent_message = clean_text
+            if attachment_text:
+                agent_message = (
+                    f"{clean_text}\n\n{attachment_text}" if clean_text else attachment_text
+                )
+
+            result = await agent_service.get_agent_response(
                 credential=credential,
                 settings=settings,
-                user_message=llm_message,
+                user_message=agent_message,
                 user_name=message.name,
                 trip_files=trip_files,
                 blob_container=blob_container,
                 group_id=message.group_id,
                 trip_id=active["trip_id"] if active else None,
             )
-        else:
-            result = await _handle_with_legacy(
-                credential=credential,
-                settings=settings,
-                user_message=llm_message,
-                user_name=message.name,
-                trip_files=trip_files,
-                chat_history=chat_history,
-                blob_container=blob_container,
-                group_id=message.group_id,
-                active=active,
-            )
 
-        # Mark processed
-        await storage.mark_message_processed(blob_container, message.group_id, message.id)
-
-        # Save conversation history (legacy path only — agent uses BlobHistoryProvider)
-        chat_message = result.get("message", "")
-        if chat_message and not settings.use_agent_framework:
-            chat_history = chat_history or []
-            chat_history.append({"role": "user", "content": f"{message.name}: {clean_text}"})
-            chat_history.append({"role": "assistant", "content": chat_message})
-            await storage.write_chat_history(blob_container, message.group_id, chat_history)
-
-        # Send response
-        if chat_message:
-            await groupme.send_message(settings.groupme_bot_id, chat_message)
+            # Send response
+            chat_message = result.get("message", "")
+            if chat_message:
+                await groupme.send_message(settings.groupme_bot_id, chat_message)
 
     except Exception:
         logger.exception("Error handling message %s in group %s", message.id, message.group_id)
@@ -112,72 +96,3 @@ async def handle_message(
             settings.groupme_bot_id,
             "Sorry, something went wrong. Please try again.",
         )
-
-
-async def _handle_with_agent(
-    credential: DefaultAzureCredential,
-    settings: Settings,
-    user_message: str,
-    user_name: str,
-    trip_files: dict[str, str] | None,
-    blob_container: ContainerClient,
-    group_id: str,
-    trip_id: str | None,
-) -> dict:
-    """Handle message using the Agent Framework (new path)."""
-    async with storage._get_group_lock(group_id):
-        return await agent_service.get_agent_response(
-            credential=credential,
-            settings=settings,
-            user_message=user_message,
-            user_name=user_name,
-            trip_files=trip_files,
-            blob_container=blob_container,
-            group_id=group_id,
-            trip_id=trip_id,
-        )
-
-
-async def _handle_with_legacy(
-    credential: DefaultAzureCredential,
-    settings: Settings,
-    user_message: str,
-    user_name: str,
-    trip_files: dict[str, str] | None,
-    chat_history: list[dict[str, str]],
-    blob_container: ContainerClient,
-    group_id: str,
-    active: dict | None,
-) -> dict:
-    """Handle message using the legacy LLM service (old path)."""
-    async with storage._get_group_lock(group_id):
-        result = await llm.get_response(
-            credential=credential,
-            settings=settings,
-            user_message=user_message,
-            user_name=user_name,
-            trip_files=trip_files,
-            chat_history=chat_history,
-        )
-
-        # Handle trip lifecycle commands
-        if result.get("new_trip"):
-            await storage.create_trip(blob_container, group_id, result["new_trip"])
-            logger.info("Created new trip: %s", result["new_trip"])
-
-        elif result.get("archive_trip") and active:
-            await storage.archive_trip(blob_container, group_id)
-            logger.info("Archived trip for group %s", group_id)
-
-        elif result.get("file_updates") and active:
-            for filename, content in result["file_updates"].items():
-                await storage.write_trip_file(
-                    blob_container,
-                    group_id,
-                    active["trip_id"],
-                    filename,
-                    content,
-                )
-            logger.info("Updated files: %s", ", ".join(result["file_updates"].keys()))
-
-    return result

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import json
 import logging
 import secrets
 
@@ -160,8 +161,6 @@ async def list_trips(request: Request):
                 try:
                     client = container.get_blob_client(blob.name)
                     data = await client.download_blob()
-                    import json
-
                     info = json.loads(await data.readall())
                     groups.append({"group_id": group_id, "trip_name": info.get("trip_name", "")})
                 except Exception:

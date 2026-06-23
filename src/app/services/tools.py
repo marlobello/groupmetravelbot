@@ -6,10 +6,13 @@ these tools to write changes, create/archive trips.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Annotated
+from uuid import uuid4
 
 from agent_framework import tool
+from azure.core.exceptions import ResourceNotFoundError
 from azure.storage.blob.aio import ContainerClient
 from pydantic import Field
 
@@ -84,9 +87,6 @@ class TripTools:
         ],
     ) -> str:
         """Create a new trip with template files and set it as active."""
-        import json
-        from uuid import uuid4
-
         trip_id = str(uuid4())
         prefix = f"trips/{self._group_id}/{trip_id}"
 
@@ -133,8 +133,6 @@ class TripTools:
     )
     async def archive_trip(self) -> str:
         """Archive the active trip by removing the pointer (files remain for history)."""
-        from azure.core.exceptions import ResourceNotFoundError
-
         blob = self._container.get_blob_client(f"trips/{self._group_id}/active_trip.json")
         try:
             await blob.delete_blob()

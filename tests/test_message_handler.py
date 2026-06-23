@@ -26,8 +26,29 @@ def _make_settings():
     s = MagicMock()
     s.bot_trigger_keyword = "@sensei"
     s.groupme_bot_id = "bot-123"
-    s.use_agent_framework = False
     return s
+
+
+def _make_storage_mock(*, claimed: bool = True, active=None, trip_files=None):
+    """Build a patched-storage mock with a working async group lock."""
+    mock_storage = MagicMock()
+    mock_storage.claim_message_processed = AsyncMock(return_value=claimed)
+    mock_storage.get_active_trip = AsyncMock(return_value=active)
+    mock_storage.read_trip_files = AsyncMock(
+        return_value=trip_files
+        or {
+            "trip.md": "",
+            "brainstorming.md": "",
+            "planning.md": "",
+            "itinerary.md": "",
+        }
+    )
+
+    lock = AsyncMock()
+    lock.__aenter__ = AsyncMock(return_value=None)
+    lock.__aexit__ = AsyncMock(return_value=False)
+    mock_storage._get_group_lock = MagicMock(return_value=lock)
+    return mock_storage
 
 
 # ── Basic flow ────────────────────────────────────────────────────────
@@ -35,177 +56,27 @@ def _make_settings():
 
 @pytest.mark.asyncio
 @patch("app.services.message_handler.groupme")
-@patch("app.services.message_handler.llm")
+@patch("app.services.message_handler.agent_service")
 @patch("app.services.message_handler.storage")
-async def test_basic_query_flow(mock_storage, mock_llm, mock_groupme):
-    """LLM returns a message with no file updates — just sends chat reply."""
-    mock_storage.check_message_processed = AsyncMock(return_value=False)
-    mock_storage.get_active_trip = AsyncMock(
-        return_value={"trip_id": "t1", "trip_name": "Rome 2025"}
-    )
-    mock_storage.read_trip_files = AsyncMock(
-        return_value={
-            "trip.md": "# Rome",
-            "brainstorming.md": "",
-            "planning.md": "",
-            "itinerary.md": "",
-        }
-    )
-    mock_storage.read_chat_history = AsyncMock(return_value=[])
-    mock_storage.write_chat_history = AsyncMock()
-    mock_storage.mark_message_processed = AsyncMock()
+async def test_basic_query_flow(mock_storage_mod, mock_agent, mock_groupme):
+    """Agent returns a message — it gets sent to the group."""
+    mock_storage = _make_storage_mock(active={"trip_id": "t1", "trip_name": "Rome 2025"})
+    mock_storage_mod.claim_message_processed = mock_storage.claim_message_processed
+    mock_storage_mod.get_active_trip = mock_storage.get_active_trip
+    mock_storage_mod.read_trip_files = mock_storage.read_trip_files
+    mock_storage_mod._get_group_lock = mock_storage._get_group_lock
 
-    lock = AsyncMock()
-    lock.__aenter__ = AsyncMock(return_value=None)
-    lock.__aexit__ = AsyncMock(return_value=False)
-    mock_storage._get_group_lock = MagicMock(return_value=lock)
-
-    mock_llm.get_response = AsyncMock(return_value={"message": "Rome has tons to see! 🏛️"})
+    mock_agent.get_agent_response = AsyncMock(return_value={"message": "Rome has tons to see! 🏛️"})
     mock_groupme.send_message = AsyncMock()
 
     await handle_message(_make_message(), AsyncMock(), AsyncMock(), _make_settings())
 
     mock_groupme.send_message.assert_called_once_with("bot-123", "Rome has tons to see! 🏛️")
-    mock_storage.write_trip_file.assert_not_called()
-
-
-@pytest.mark.asyncio
-@patch("app.services.message_handler.groupme")
-@patch("app.services.message_handler.llm")
-@patch("app.services.message_handler.storage")
-async def test_file_update_flow(mock_storage, mock_llm, mock_groupme):
-    """LLM returns file updates — they get written to blob storage."""
-    container = AsyncMock()
-
-    mock_storage.check_message_processed = AsyncMock(return_value=False)
-    mock_storage.get_active_trip = AsyncMock(
-        return_value={"trip_id": "t1", "trip_name": "Rome 2025"}
-    )
-    mock_storage.read_trip_files = AsyncMock(
-        return_value={
-            "trip.md": "",
-            "brainstorming.md": "",
-            "planning.md": "",
-            "itinerary.md": "",
-        }
-    )
-    mock_storage.write_trip_file = AsyncMock()
-    mock_storage.read_chat_history = AsyncMock(return_value=[])
-    mock_storage.write_chat_history = AsyncMock()
-    mock_storage.mark_message_processed = AsyncMock()
-
-    lock = AsyncMock()
-    lock.__aenter__ = AsyncMock(return_value=None)
-    lock.__aexit__ = AsyncMock(return_value=False)
-    mock_storage._get_group_lock = MagicMock(return_value=lock)
-
-    mock_llm.get_response = AsyncMock(
-        return_value={
-            "message": "Added to brainstorming!",
-            "file_updates": {"brainstorming.md": "# Ideas\n- Colosseum"},
-        }
-    )
-    mock_groupme.send_message = AsyncMock()
-
-    await handle_message(_make_message(), container, AsyncMock(), _make_settings())
-
-    mock_storage.write_trip_file.assert_called_once_with(
-        container, "g1", "t1", "brainstorming.md", "# Ideas\n- Colosseum"
-    )
-    mock_groupme.send_message.assert_called_once()
-
-
-# ── New trip ──────────────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-@patch("app.services.message_handler.groupme")
-@patch("app.services.message_handler.llm")
-@patch("app.services.message_handler.storage")
-async def test_new_trip_creation(mock_storage, mock_llm, mock_groupme):
-    container = AsyncMock()
-
-    mock_storage.check_message_processed = AsyncMock(return_value=False)
-    mock_storage.get_active_trip = AsyncMock(return_value=None)
-    mock_storage.create_trip = AsyncMock(
-        return_value={"trip_id": "new-1", "trip_name": "Tokyo 2025"}
-    )
-    mock_storage.read_chat_history = AsyncMock(return_value=[])
-    mock_storage.write_chat_history = AsyncMock()
-    mock_storage.mark_message_processed = AsyncMock()
-
-    lock = AsyncMock()
-    lock.__aenter__ = AsyncMock(return_value=None)
-    lock.__aexit__ = AsyncMock(return_value=False)
-    mock_storage._get_group_lock = MagicMock(return_value=lock)
-
-    mock_llm.get_response = AsyncMock(
-        return_value={
-            "message": "🌴 Let's plan Tokyo 2025!",
-            "new_trip": "Tokyo 2025",
-        }
-    )
-    mock_groupme.send_message = AsyncMock()
-
-    await handle_message(
-        _make_message(text="@sensei start a trip to Tokyo"),
-        container,
-        AsyncMock(),
-        _make_settings(),
-    )
-
-    mock_storage.create_trip.assert_called_once_with(container, "g1", "Tokyo 2025")
-    mock_groupme.send_message.assert_called_once()
-
-
-# ── Archive trip ──────────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-@patch("app.services.message_handler.groupme")
-@patch("app.services.message_handler.llm")
-@patch("app.services.message_handler.storage")
-async def test_archive_trip(mock_storage, mock_llm, mock_groupme):
-    container = AsyncMock()
-
-    mock_storage.check_message_processed = AsyncMock(return_value=False)
-    mock_storage.get_active_trip = AsyncMock(
-        return_value={"trip_id": "t1", "trip_name": "Rome 2025"}
-    )
-    mock_storage.read_trip_files = AsyncMock(
-        return_value={
-            "trip.md": "",
-            "brainstorming.md": "",
-            "planning.md": "",
-            "itinerary.md": "",
-        }
-    )
-    mock_storage.archive_trip = AsyncMock()
-    mock_storage.read_chat_history = AsyncMock(return_value=[])
-    mock_storage.write_chat_history = AsyncMock()
-    mock_storage.mark_message_processed = AsyncMock()
-
-    lock = AsyncMock()
-    lock.__aenter__ = AsyncMock(return_value=None)
-    lock.__aexit__ = AsyncMock(return_value=False)
-    mock_storage._get_group_lock = MagicMock(return_value=lock)
-
-    mock_llm.get_response = AsyncMock(
-        return_value={
-            "message": "📦 Trip archived!",
-            "archive_trip": True,
-        }
-    )
-    mock_groupme.send_message = AsyncMock()
-
-    await handle_message(
-        _make_message(text="@sensei archive the trip"),
-        container,
-        AsyncMock(),
-        _make_settings(),
-    )
-
-    mock_storage.archive_trip.assert_called_once_with(container, "g1")
+    # The agent received the active trip's id and files
+    call = mock_agent.get_agent_response.call_args.kwargs
+    assert call["trip_id"] == "t1"
+    assert call["group_id"] == "g1"
+    assert call["user_name"] == "Alice"
 
 
 # ── Idempotency ───────────────────────────────────────────────────────
@@ -213,15 +84,68 @@ async def test_archive_trip(mock_storage, mock_llm, mock_groupme):
 
 @pytest.mark.asyncio
 @patch("app.services.message_handler.groupme")
-@patch("app.services.message_handler.llm")
+@patch("app.services.message_handler.agent_service")
 @patch("app.services.message_handler.storage")
-async def test_duplicate_message_skipped(mock_storage, mock_llm, mock_groupme):
-    mock_storage.check_message_processed = AsyncMock(return_value=True)
+async def test_duplicate_message_skipped(mock_storage_mod, mock_agent, mock_groupme):
+    """A message that fails to claim (already processed) is skipped entirely."""
+    mock_storage = _make_storage_mock(claimed=False)
+    mock_storage_mod.claim_message_processed = mock_storage.claim_message_processed
+    mock_storage_mod._get_group_lock = mock_storage._get_group_lock
+    mock_agent.get_agent_response = AsyncMock()
+    mock_groupme.send_message = AsyncMock()
 
     await handle_message(_make_message(), AsyncMock(), AsyncMock(), _make_settings())
 
-    mock_llm.get_response.assert_not_called()
+    mock_agent.get_agent_response.assert_not_called()
     mock_groupme.send_message.assert_not_called()
+
+
+@pytest.mark.asyncio
+@patch("app.services.message_handler.groupme")
+@patch("app.services.message_handler.agent_service")
+@patch("app.services.message_handler.storage")
+async def test_claim_happens_before_processing(mock_storage_mod, mock_agent, mock_groupme):
+    """The idempotency claim is the first storage call (inside the lock)."""
+    mock_storage = _make_storage_mock(active=None)
+    mock_storage_mod.claim_message_processed = mock_storage.claim_message_processed
+    mock_storage_mod.get_active_trip = mock_storage.get_active_trip
+    mock_storage_mod.read_trip_files = mock_storage.read_trip_files
+    mock_storage_mod._get_group_lock = mock_storage._get_group_lock
+    mock_agent.get_agent_response = AsyncMock(return_value={"message": "Hi!"})
+    mock_groupme.send_message = AsyncMock()
+
+    await handle_message(_make_message(), AsyncMock(), AsyncMock(), _make_settings())
+
+    mock_storage.claim_message_processed.assert_awaited_once()
+    args = mock_storage.claim_message_processed.call_args[0]
+    assert args[1] == "g1" and args[2] == "msg-1"
+
+
+# ── No active trip ────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+@patch("app.services.message_handler.groupme")
+@patch("app.services.message_handler.agent_service")
+@patch("app.services.message_handler.storage")
+async def test_no_trip_skips_file_read(mock_storage_mod, mock_agent, mock_groupme):
+    """With no active trip, trip files are not read and agent gets trip_files=None."""
+    mock_storage = _make_storage_mock(active=None)
+    mock_storage_mod.claim_message_processed = mock_storage.claim_message_processed
+    mock_storage_mod.get_active_trip = mock_storage.get_active_trip
+    mock_storage_mod.read_trip_files = mock_storage.read_trip_files
+    mock_storage_mod._get_group_lock = mock_storage._get_group_lock
+    mock_agent.get_agent_response = AsyncMock(
+        return_value={"message": "Hey! Want to start a trip? 🌍"}
+    )
+    mock_groupme.send_message = AsyncMock()
+
+    await handle_message(_make_message(), AsyncMock(), AsyncMock(), _make_settings())
+
+    mock_storage.read_trip_files.assert_not_called()
+    assert mock_agent.get_agent_response.call_args.kwargs["trip_files"] is None
+    assert mock_agent.get_agent_response.call_args.kwargs["trip_id"] is None
+    mock_groupme.send_message.assert_called_once()
 
 
 # ── Error handling ────────────────────────────────────────────────────
@@ -229,11 +153,14 @@ async def test_duplicate_message_skipped(mock_storage, mock_llm, mock_groupme):
 
 @pytest.mark.asyncio
 @patch("app.services.message_handler.groupme")
-@patch("app.services.message_handler.llm")
+@patch("app.services.message_handler.agent_service")
 @patch("app.services.message_handler.storage")
-async def test_error_sends_apology(mock_storage, mock_llm, mock_groupme):
-    mock_storage.check_message_processed = AsyncMock(return_value=False)
-    mock_storage.get_active_trip = AsyncMock(side_effect=Exception("boom"))
+async def test_error_sends_apology(mock_storage_mod, mock_agent, mock_groupme):
+    """An unexpected error sends a generic apology to the group."""
+    mock_storage = _make_storage_mock()
+    mock_storage_mod.claim_message_processed = mock_storage.claim_message_processed
+    mock_storage_mod._get_group_lock = mock_storage._get_group_lock
+    mock_storage_mod.get_active_trip = AsyncMock(side_effect=Exception("boom"))
     mock_groupme.send_message = AsyncMock()
 
     await handle_message(_make_message(), AsyncMock(), AsyncMock(), _make_settings())
@@ -242,195 +169,67 @@ async def test_error_sends_apology(mock_storage, mock_llm, mock_groupme):
     assert "something went wrong" in mock_groupme.send_message.call_args[0][1].lower()
 
 
-# ── No trip, no new_trip → just chat ──────────────────────────────────
-
-
-@pytest.mark.asyncio
-@patch("app.services.message_handler.groupme")
-@patch("app.services.message_handler.llm")
-@patch("app.services.message_handler.storage")
-async def test_no_trip_just_chat(mock_storage, mock_llm, mock_groupme):
-    mock_storage.check_message_processed = AsyncMock(return_value=False)
-    mock_storage.get_active_trip = AsyncMock(return_value=None)
-    mock_storage.read_chat_history = AsyncMock(return_value=[])
-    mock_storage.write_chat_history = AsyncMock()
-    mock_storage.mark_message_processed = AsyncMock()
-
-    lock = AsyncMock()
-    lock.__aenter__ = AsyncMock(return_value=None)
-    lock.__aexit__ = AsyncMock(return_value=False)
-    mock_storage._get_group_lock = MagicMock(return_value=lock)
-
-    mock_llm.get_response = AsyncMock(
-        return_value={"message": "Hey! Want to start planning a trip? 🌍"}
-    )
-    mock_groupme.send_message = AsyncMock()
-
-    await handle_message(_make_message(), AsyncMock(), AsyncMock(), _make_settings())
-
-    mock_storage.read_trip_files.assert_not_called()
-    mock_groupme.send_message.assert_called_once()
-
-
-# ── Conversation history ──────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-@patch("app.services.message_handler.groupme")
-@patch("app.services.message_handler.llm")
-@patch("app.services.message_handler.storage")
-async def test_chat_history_passed_to_llm(mock_storage, mock_llm, mock_groupme):
-    """Chat history is loaded and passed to the LLM, then updated after response."""
-    container = AsyncMock()
-    prior_history = [
-        {"role": "user", "content": "Alice: what about Rome?"},
-        {"role": "assistant", "content": "Rome sounds great!"},
-    ]
-
-    mock_storage.check_message_processed = AsyncMock(return_value=False)
-    mock_storage.get_active_trip = AsyncMock(
-        return_value={"trip_id": "t1", "trip_name": "Rome 2025"}
-    )
-    mock_storage.read_trip_files = AsyncMock(
-        return_value={
-            "trip.md": "# Rome",
-            "brainstorming.md": "",
-            "planning.md": "",
-            "itinerary.md": "",
-        }
-    )
-    mock_storage.read_chat_history = AsyncMock(return_value=prior_history)
-    mock_storage.write_chat_history = AsyncMock()
-    mock_storage.mark_message_processed = AsyncMock()
-
-    lock = AsyncMock()
-    lock.__aenter__ = AsyncMock(return_value=None)
-    lock.__aexit__ = AsyncMock(return_value=False)
-    mock_storage._get_group_lock = MagicMock(return_value=lock)
-
-    mock_llm.get_response = AsyncMock(return_value={"message": "Yes, add it to brainstorming!"})
-    mock_groupme.send_message = AsyncMock()
-
-    await handle_message(
-        _make_message(text="@sensei yes put that on the list"),
-        container,
-        AsyncMock(),
-        _make_settings(),
-    )
-
-    # Verify history was passed to LLM
-    llm_call = mock_llm.get_response.call_args
-    assert llm_call.kwargs["chat_history"] == prior_history
-
-    # Verify updated history was saved (prior + new user + new assistant)
-    save_call = mock_storage.write_chat_history.call_args
-    saved_history = save_call[0][2]
-    assert len(saved_history) == 4
-    assert saved_history[-2]["role"] == "user"
-    assert saved_history[-1]["role"] == "assistant"
-    assert saved_history[-1]["content"] == "Yes, add it to brainstorming!"
-
-
 # ── Attachment processing ─────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
 @patch("app.services.message_handler.attachment_processor")
 @patch("app.services.message_handler.groupme")
-@patch("app.services.message_handler.llm")
+@patch("app.services.message_handler.agent_service")
 @patch("app.services.message_handler.storage")
-async def test_attachment_text_appended_to_llm_message(
-    mock_storage, mock_llm, mock_groupme, mock_attachment
+async def test_attachment_text_appended_to_agent_message(
+    mock_storage_mod, mock_agent, mock_groupme, mock_attachment
 ):
-    """Attachment text is extracted and appended to the user message sent to the LLM."""
-    container = AsyncMock()
-
-    mock_storage.check_message_processed = AsyncMock(return_value=False)
-    mock_storage.get_active_trip = AsyncMock(
-        return_value={"trip_id": "t1", "trip_name": "Rome 2025"}
-    )
-    mock_storage.read_trip_files = AsyncMock(
-        return_value={
-            "trip.md": "# Rome",
-            "brainstorming.md": "",
-            "planning.md": "",
-            "itinerary.md": "",
-        }
-    )
-    mock_storage.read_chat_history = AsyncMock(return_value=[])
-    mock_storage.write_chat_history = AsyncMock()
-    mock_storage.mark_message_processed = AsyncMock()
-
-    lock = AsyncMock()
-    lock.__aenter__ = AsyncMock(return_value=None)
-    lock.__aexit__ = AsyncMock(return_value=False)
-    mock_storage._get_group_lock = MagicMock(return_value=lock)
+    """Attachment text is extracted and appended to the user message sent to the agent."""
+    mock_storage = _make_storage_mock(active={"trip_id": "t1", "trip_name": "Rome 2025"})
+    mock_storage_mod.claim_message_processed = mock_storage.claim_message_processed
+    mock_storage_mod.get_active_trip = mock_storage.get_active_trip
+    mock_storage_mod.read_trip_files = mock_storage.read_trip_files
+    mock_storage_mod._get_group_lock = mock_storage._get_group_lock
 
     mock_attachment.process_attachments = AsyncMock(
         return_value="### Attached: flight.pdf\nFlight AA123 DFW→NRT Jan 15"
     )
-    mock_llm.get_response = AsyncMock(return_value={"message": "Got it! I see flight AA123."})
+    mock_agent.get_agent_response = AsyncMock(return_value={"message": "Got it! Flight AA123."})
     mock_groupme.send_message = AsyncMock()
 
     msg = _make_message(
         text="@sensei add this to the itinerary",
         attachments=[
-            {
-                "type": "file",
-                "url": "https://i.groupme.com/flight.pdf",
-                "file_name": "flight.pdf",
-            }
+            {"type": "file", "url": "https://i.groupme.com/flight.pdf", "file_name": "flight.pdf"}
         ],
     )
-    await handle_message(msg, container, AsyncMock(), _make_settings())
+    await handle_message(msg, AsyncMock(), AsyncMock(), _make_settings())
 
-    # Verify the LLM received both the user text and attachment content
-    llm_call = mock_llm.get_response.call_args
-    assert "add this to the itinerary" in llm_call.kwargs["user_message"]
-    assert "Flight AA123" in llm_call.kwargs["user_message"]
+    user_message = mock_agent.get_agent_response.call_args.kwargs["user_message"]
+    assert "add this to the itinerary" in user_message
+    assert "Flight AA123" in user_message
 
 
 @pytest.mark.asyncio
 @patch("app.services.message_handler.attachment_processor")
 @patch("app.services.message_handler.groupme")
-@patch("app.services.message_handler.llm")
+@patch("app.services.message_handler.agent_service")
 @patch("app.services.message_handler.storage")
-async def test_attachment_only_no_text(mock_storage, mock_llm, mock_groupme, mock_attachment):
-    """Message with attachment but no text still sends extracted content to LLM."""
-    container = AsyncMock()
-
-    mock_storage.check_message_processed = AsyncMock(return_value=False)
-    mock_storage.get_active_trip = AsyncMock(
-        return_value={"trip_id": "t1", "trip_name": "Rome 2025"}
-    )
-    mock_storage.read_trip_files = AsyncMock(
-        return_value={
-            "trip.md": "# Rome",
-            "brainstorming.md": "",
-            "planning.md": "",
-            "itinerary.md": "",
-        }
-    )
-    mock_storage.read_chat_history = AsyncMock(return_value=[])
-    mock_storage.write_chat_history = AsyncMock()
-    mock_storage.mark_message_processed = AsyncMock()
-
-    lock = AsyncMock()
-    lock.__aenter__ = AsyncMock(return_value=None)
-    lock.__aexit__ = AsyncMock(return_value=False)
-    mock_storage._get_group_lock = MagicMock(return_value=lock)
+async def test_attachment_only_no_text(mock_storage_mod, mock_agent, mock_groupme, mock_attachment):
+    """A message with an attachment but no text still sends extracted content to the agent."""
+    mock_storage = _make_storage_mock(active={"trip_id": "t1", "trip_name": "Rome 2025"})
+    mock_storage_mod.claim_message_processed = mock_storage.claim_message_processed
+    mock_storage_mod.get_active_trip = mock_storage.get_active_trip
+    mock_storage_mod.read_trip_files = mock_storage.read_trip_files
+    mock_storage_mod._get_group_lock = mock_storage._get_group_lock
 
     mock_attachment.process_attachments = AsyncMock(
         return_value="### Attached: screenshot.jpg\nHotel booking #12345"
     )
-    mock_llm.get_response = AsyncMock(return_value={"message": "I see a hotel booking!"})
+    mock_agent.get_agent_response = AsyncMock(return_value={"message": "I see a hotel booking!"})
     mock_groupme.send_message = AsyncMock()
 
     msg = _make_message(
         text="@sensei",
         attachments=[{"type": "image", "url": "https://i.groupme.com/screenshot.jpg"}],
     )
-    await handle_message(msg, container, AsyncMock(), _make_settings())
+    await handle_message(msg, AsyncMock(), AsyncMock(), _make_settings())
 
-    llm_call = mock_llm.get_response.call_args
-    assert "Hotel booking #12345" in llm_call.kwargs["user_message"]
+    user_message = mock_agent.get_agent_response.call_args.kwargs["user_message"]
+    assert "Hotel booking #12345" in user_message

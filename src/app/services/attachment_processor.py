@@ -73,20 +73,22 @@ def _is_safe_url(url: str) -> bool:
     return True
 
 
-def _build_converter(settings: Settings, credential: Any) -> MarkItDown:
-    """Build a MarkItDown instance with LLM support for image OCR."""
+def _build_converter(settings: Settings, token: str | None) -> MarkItDown:
+    """Build a MarkItDown instance with LLM support for image OCR.
+
+    ``token`` is an Entra access token for Cognitive Services (acquired via the
+    caller's async credential). When unavailable, falls back to the basic
+    (non-LLM) converter.
+    """
+    if not token:
+        return MarkItDown()
     try:
-        from azure.identity import DefaultAzureCredential as SyncCredential
-
-        sync_credential = SyncCredential(managed_identity_client_id=settings.azure_client_id)
-        token = sync_credential.get_token("https://cognitiveservices.azure.com/.default")
-
         from openai import AzureOpenAI
 
         llm_client = AzureOpenAI(
             azure_endpoint=settings.azure_openai_endpoint,
-            azure_ad_token=token.token,
-            api_version="2024-12-01-preview",
+            azure_ad_token=token,
+            api_version=settings.azure_openai_api_version,
         )
         return MarkItDown(
             enable_plugins=True,
@@ -96,6 +98,16 @@ def _build_converter(settings: Settings, credential: Any) -> MarkItDown:
     except Exception:
         logger.warning("Could not create LLM-backed converter, falling back to basic")
         return MarkItDown()
+
+
+async def _get_openai_token(credential: Any) -> str | None:
+    """Acquire a Cognitive Services access token from the async credential."""
+    try:
+        token = await credential.get_token("https://cognitiveservices.azure.com/.default")
+        return token.token
+    except Exception:
+        logger.warning("Could not acquire OpenAI token for attachment OCR; using basic converter")
+        return None
 
 
 async def _download_attachment(url: str) -> tuple[bytes, str]:
@@ -156,7 +168,8 @@ async def process_attachments(
     if not processable:
         return None
 
-    converter = _build_converter(settings, credential)
+    token = await _get_openai_token(credential)
+    converter = _build_converter(settings, token)
     results: list[str] = []
 
     for attachment in processable:

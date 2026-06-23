@@ -15,7 +15,7 @@ import json
 import logging
 from uuid import uuid4
 
-from azure.core.exceptions import ResourceNotFoundError
+from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
 from azure.storage.blob.aio import ContainerClient
 
 logger = logging.getLogger(__name__)
@@ -126,49 +126,19 @@ async def write_trip_file(
 # ── Idempotency ───────────────────────────────────────────────────────
 
 
-async def check_message_processed(
+async def claim_message_processed(
     container: ContainerClient, group_id: str, message_id: str
 ) -> bool:
+    """Atomically claim a message for processing.
+
+    Uploads the idempotency marker with ``overwrite=False`` (translates to an
+    ``If-None-Match: *`` conditional PUT), so exactly one caller can ever create
+    it. Returns ``True`` if this call claimed the message, or ``False`` if it was
+    already claimed/processed (a duplicate delivery).
+    """
     blob = container.get_blob_client(f"processed/{group_id}/msg-{message_id}")
     try:
-        await blob.get_blob_properties()
+        await blob.upload_blob(b"1", overwrite=False)
         return True
-    except ResourceNotFoundError:
+    except ResourceExistsError:
         return False
-
-
-async def mark_message_processed(
-    container: ContainerClient, group_id: str, message_id: str
-) -> None:
-    blob = container.get_blob_client(f"processed/{group_id}/msg-{message_id}")
-    await blob.upload_blob(b"1", overwrite=True)
-
-
-# ── Chat history ──────────────────────────────────────────────────────
-
-MAX_HISTORY_MESSAGES = 20  # 10 exchanges (user + assistant)
-
-
-async def read_chat_history(container: ContainerClient, group_id: str) -> list[dict[str, str]]:
-    """Read the rolling chat history for a group. Returns list of {role, content}."""
-    blob = container.get_blob_client(f"trips/{group_id}/chat_history.json")
-    try:
-        data = await blob.download_blob()
-        content = await data.readall()
-        history = json.loads(content)
-        if isinstance(history, list):
-            return history[-MAX_HISTORY_MESSAGES:]
-        return []
-    except (ResourceNotFoundError, json.JSONDecodeError):
-        return []
-
-
-async def write_chat_history(
-    container: ContainerClient,
-    group_id: str,
-    history: list[dict[str, str]],
-) -> None:
-    """Write the rolling chat history, trimming to the most recent exchanges."""
-    trimmed = history[-MAX_HISTORY_MESSAGES:]
-    blob = container.get_blob_client(f"trips/{group_id}/chat_history.json")
-    await blob.upload_blob(json.dumps(trimmed).encode(), overwrite=True)

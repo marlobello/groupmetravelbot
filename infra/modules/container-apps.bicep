@@ -131,8 +131,8 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
           name: 'travelbot'
           image: containerImage
           resources: {
-            cpu: json('0.25')
-            memory: '0.5Gi'
+            cpu: json('1.0')
+            memory: '2.0Gi'
           }
           env: [
             {

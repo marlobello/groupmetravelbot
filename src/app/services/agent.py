@@ -21,6 +21,30 @@ from app.services.tools import TripTools
 
 logger = logging.getLogger(__name__)
 
+# Cache one chat client per (credential, endpoint, deployment, api_version) so we
+# don't rebuild the underlying HTTP/SDK client on every message.
+_client_cache: dict[tuple, OpenAIChatCompletionClient] = {}
+
+
+def _get_client(
+    credential: DefaultAzureCredential,
+    endpoint: str,
+    deployment: str,
+    api_version: str,
+) -> OpenAIChatCompletionClient:
+    """Return a cached OpenAIChatCompletionClient, creating it on first use."""
+    key = (id(credential), endpoint, deployment, api_version)
+    client = _client_cache.get(key)
+    if client is None:
+        client = OpenAIChatCompletionClient(
+            model=deployment,
+            azure_endpoint=endpoint,
+            credential=credential,
+            api_version=api_version,
+        )
+        _client_cache[key] = client
+    return client
+
 
 def _is_rate_limit_error(exc: BaseException) -> bool:
     """Walk the exception chain to detect an underlying HTTP 429 / rate-limit error.
@@ -195,12 +219,12 @@ async def get_agent_response(
         )
         context_providers.append(history_provider)
 
-    # Create the agent client
-    client = OpenAIChatCompletionClient(
-        model=settings.azure_openai_deployment,
-        azure_endpoint=settings.azure_openai_endpoint,
-        credential=credential,
-        api_version="2024-12-01-preview",
+    # Create (or reuse) the agent client
+    client = _get_client(
+        credential,
+        settings.azure_openai_endpoint,
+        settings.azure_openai_deployment,
+        settings.azure_openai_api_version,
     )
 
     agent = client.as_agent(
