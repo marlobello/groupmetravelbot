@@ -25,17 +25,11 @@ param customDomainName string = 'sensei.dotheneedful.dev'
 @description('Name of existing managed certificate in the environment.')
 param managedCertificateName string = 'mc-travelbot-env--sensei-dotheneed-9347'
 
-@description('Microsoft Foundry project endpoint (Agent Service) — the bot\'s chat backend.')
+@description('Microsoft Foundry project endpoint (Agent Service) — the bot\'s chat backend. Provided by the platform/CoE team that owns the Foundry project.')
 param foundryProjectEndpoint string = 'https://sensei-resource.services.ai.azure.com/api/projects/sensei'
 
-@description('Azure OpenAI endpoint on the Foundry account (used for attachment OCR).')
+@description('Azure OpenAI endpoint on the Foundry account (used for attachment OCR). Provided by the platform/CoE team.')
 param foundryOpenAiEndpoint string = 'https://sensei-resource.openai.azure.com/'
-
-@description('Name of the existing Microsoft Foundry (AIServices) account.')
-param foundryAccountName string = 'sensei-resource'
-
-@description('Resource group of the existing Microsoft Foundry account.')
-param foundryResourceGroup string = 'rg-foundry'
 
 var resourceToken = uniqueString(resourceGroup().id)
 
@@ -68,19 +62,12 @@ module storage 'modules/storage.bicep' = {
   }
 }
 
-// ─── Foundry project access (cross-RG RBAC) ──────────────────────────
-// Grants the bot's managed identity access to the existing Foundry account
-// (Agent Service + Web Search, and OpenAI inference for attachment OCR).
-module foundryAccess 'modules/foundry-access.bicep' = {
-  name: 'foundry-access'
-  scope: resourceGroup(foundryResourceGroup)
-  params: {
-    foundryAccountName: foundryAccountName
-    managedIdentityPrincipalId: identity.outputs.managedIdentityPrincipalId
-  }
-}
-
 // ─── Container Apps ──────────────────────────────────────────────────
+// NOTE: This app deployment is intentionally scoped to its own resource group.
+// It does NOT create or modify the Foundry account/project or its role
+// assignments — that boundary is owned by the platform/CoE team and granted
+// out-of-band (see infra/platform/). The app only consumes the project
+// endpoints passed in as parameters.
 module containerApps 'modules/container-apps.bicep' = {
   name: 'container-apps'
   params: {
@@ -113,3 +100,7 @@ output deploymentName string = deployment().name
 
 @description('Azure OpenAI account endpoint.')
 output openaiEndpoint string = openai.outputs.openaiEndpoint
+
+@description('Principal ID of the app managed identity. Hand this to the platform/CoE team so they can grant it access to the Foundry project (see infra/platform/).')
+output managedIdentityPrincipalId string = identity.outputs.managedIdentityPrincipalId
+

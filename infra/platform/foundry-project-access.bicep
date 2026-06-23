@@ -1,7 +1,27 @@
+// ─────────────────────────────────────────────────────────────────────
+// PLATFORM / CENTER-OF-EXCELLENCE TEMPLATE — deployed OUT OF BAND.
+//
+// This template is OWNED BY THE PLATFORM/CoE TEAM, not the application
+// pipeline. It grants an application's managed identity consumer access to
+// the shared Foundry account/project. It is intentionally NOT referenced by
+// infra/main.bicep, so the app's CI/CD never needs write access to the
+// Foundry resource group.
+//
+// Deploy (by the CoE, against the Foundry resource group):
+//   az deployment group create \
+//     -g rg-foundry \
+//     -f infra/platform/foundry-project-access.bicep \
+//     -p foundryAccountName=sensei-resource \
+//        managedIdentityPrincipalId=<app-mi-principal-id>
+//
+// The <app-mi-principal-id> is published as the `managedIdentityPrincipalId`
+// output of the application deployment (infra/main.bicep).
+// ─────────────────────────────────────────────────────────────────────
+
 @description('Name of the existing Microsoft Foundry (AIServices) account to grant access to.')
 param foundryAccountName string
 
-@description('Principal ID of the managed identity to grant access.')
+@description('Principal ID of the application managed identity to grant access.')
 param managedIdentityPrincipalId string
 
 resource foundryAccount 'Microsoft.CognitiveServices/accounts@2024-10-01' existing = {
