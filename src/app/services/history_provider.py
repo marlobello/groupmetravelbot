@@ -20,6 +20,30 @@ logger = logging.getLogger(__name__)
 MAX_HISTORY_MESSAGES = 40  # Keep last 20 exchanges (user + assistant)
 
 
+def _json_default(o: Any) -> Any:
+    """Coerce objects that ``Message.to_dict()`` leaves as SDK models.
+
+    Web Search replies embed citation annotations (e.g. pydantic
+    ``AnnotationURLCitation``) that aren't plain JSON. Convert them to their
+    canonical dict form so the history blob can be serialised and round-tripped.
+    """
+    for attr in ("model_dump", "to_dict", "as_dict", "dict"):
+        fn = getattr(o, attr, None)
+        if callable(fn):
+            try:
+                return fn(mode="json") if attr == "model_dump" else fn()
+            except TypeError:
+                try:
+                    return fn()
+                except Exception:
+                    pass
+            except Exception:
+                pass
+    if hasattr(o, "__dict__"):
+        return {k: v for k, v in vars(o).items() if not k.startswith("_")}
+    return str(o)
+
+
 class BlobHistoryProvider(HistoryProvider):
     """Persists agent conversation history to Azure Blob Storage.
 
@@ -94,7 +118,7 @@ class BlobHistoryProvider(HistoryProvider):
         trimmed = all_messages[-MAX_HISTORY_MESSAGES:]
 
         blob = self._container.get_blob_client(self._blob_path)
-        serialised = json.dumps([m.to_dict() for m in trimmed])
+        serialised = json.dumps([m.to_dict() for m in trimmed], default=_json_default)
         await blob.upload_blob(serialised.encode(), overwrite=True)
         logger.debug(
             "Saved %d history messages for group %s",

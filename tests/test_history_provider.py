@@ -114,6 +114,44 @@ class TestSaveMessages:
         assert parsed[0]["role"] == "user"
 
     @pytest.mark.asyncio
+    async def test_saves_messages_with_web_search_citations(self, mock_container):
+        """Web Search citation annotations (non-JSON SDK objects) serialise cleanly."""
+        from openai.types.responses.response_output_text import AnnotationURLCitation
+
+        mock_blob = MagicMock()
+        mock_blob.download_blob = AsyncMock(side_effect=ResourceNotFoundError("not found"))
+        mock_blob.upload_blob = AsyncMock()
+        mock_container.get_blob_client = MagicMock(return_value=mock_blob)
+
+        provider = BlobHistoryProvider(container=mock_container, group_id="g1")
+
+        citation = AnnotationURLCitation(
+            type="url_citation",
+            start_index=0,
+            end_index=5,
+            url="https://example.com",
+            title="Example",
+        )
+        # A message whose to_dict() embeds a non-JSON-serializable pydantic object,
+        # mirroring what the framework produces for Web Search replies.
+        msg = MagicMock()
+        msg.to_dict = MagicMock(
+            return_value={
+                "role": "assistant",
+                "contents": [{"text": "See here", "annotations": [citation]}],
+            }
+        )
+
+        await provider.save_messages("g1", [msg])
+
+        mock_blob.upload_blob.assert_called_once()
+        saved = mock_blob.upload_blob.call_args[0][0]
+        parsed = json.loads(saved)  # must not raise
+        annotation = parsed[0]["contents"][0]["annotations"][0]
+        assert annotation["url"] == "https://example.com"
+        assert annotation["type"] == "url_citation"
+
+    @pytest.mark.asyncio
     async def test_skips_save_when_empty(self, provider, mock_container):
         """Doesn't write blob when no messages to save."""
         mock_blob = MagicMock()
