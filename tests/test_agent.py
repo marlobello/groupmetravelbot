@@ -192,3 +192,33 @@ class TestGetAgentResponse:
         )
 
         assert "try again" in result["message"].lower()
+
+    @pytest.mark.asyncio
+    @patch("app.services.agent.OpenAIChatCompletionClient")
+    async def test_rate_limit_returns_friendly_message(
+        self, mock_client_cls, mock_credential, mock_settings, trip_files
+    ):
+        """A 429/rate-limit error returns a distinct, friendly message."""
+
+        class RateLimitError(Exception):
+            status_code = 429
+
+        wrapped = RuntimeError("service failed")
+        wrapped.__cause__ = RateLimitError("Too Many Requests")
+
+        mock_agent = MagicMock()
+        mock_agent.run = AsyncMock(side_effect=wrapped)
+
+        mock_client = MagicMock()
+        mock_client.as_agent = MagicMock(return_value=mock_agent)
+        mock_client_cls.return_value = mock_client
+
+        result = await get_agent_response(
+            credential=mock_credential,
+            settings=mock_settings,
+            user_message="Hello",
+            user_name="Alice",
+            trip_files=trip_files,
+        )
+
+        assert "rate limit" in result["message"].lower()

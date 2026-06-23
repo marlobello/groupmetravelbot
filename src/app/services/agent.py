@@ -21,6 +21,26 @@ from app.services.tools import TripTools
 
 logger = logging.getLogger(__name__)
 
+
+def _is_rate_limit_error(exc: BaseException) -> bool:
+    """Walk the exception chain to detect an underlying HTTP 429 / rate-limit error.
+
+    The Agent Framework wraps provider errors in ``ChatClientException``, so the
+    original ``openai.RateLimitError`` (or a 429 status) is found via ``__cause__``
+    or ``__context__`` rather than on the top-level exception.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if type(current).__name__ == "RateLimitError":
+            return True
+        if getattr(current, "status_code", None) == 429:
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
 SYSTEM_PROMPT = """\
 You are **Sensei**, an expert travel planning assistant embedded in a GroupMe group chat.
 
@@ -202,6 +222,11 @@ async def get_agent_response(
 
         return {"message": response_text}
 
-    except Exception:
-        logger.exception("Error running agent")
+    except Exception as exc:
+        logger.exception("Error running agent (%s)", type(exc).__name__)
+        if _is_rate_limit_error(exc):
+            return {
+                "message": "I'm getting a lot of requests right now and hit a rate limit. "
+                "Please give me a moment and try again. 🙏"
+            }
         return {"message": "Sorry, I had trouble with that. Could you try again?"}

@@ -25,7 +25,7 @@ resource gpt41Deployment 'Microsoft.CognitiveServices/accounts/deployments@2024-
   name: 'gpt-4.1'
   sku: {
     name: 'Standard'
-    capacity: 1
+    capacity: 30
   }
   properties: {
     model: {
