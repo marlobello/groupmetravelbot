@@ -1,19 +1,24 @@
 # ---------- builder ----------
-FROM python:3.12-slim AS builder
+FROM python:3.13-slim AS builder
 
 WORKDIR /build
 
+# Install pinned, hash-verified dependencies first (reproducible builds), then
+# the application package itself without re-resolving its dependency tree.
+COPY requirements.lock ./
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir --require-hashes -r requirements.lock
+
 COPY pyproject.toml ./
 COPY src/ ./src/
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir .
+RUN pip install --no-cache-dir --no-deps .
 
 # ---------- runtime ----------
-FROM python:3.12-slim
+FROM python:3.13-slim
 
 WORKDIR /app
 
-COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 COPY src/ .

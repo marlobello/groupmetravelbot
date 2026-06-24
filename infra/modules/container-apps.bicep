@@ -43,7 +43,7 @@ param webhookSecret string
 @description('Access key for web UI authentication.')
 param webAccessKey string
 
-resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
+resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2025-02-01' = {
   name: '${environmentName}-logs'
   location: location
   properties: {
@@ -54,7 +54,7 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   }
 }
 
-resource environment 'Microsoft.App/managedEnvironments@2024-03-01' = {
+resource environment 'Microsoft.App/managedEnvironments@2026-01-01' = {
   name: environmentName
   location: location
   properties: {
@@ -76,7 +76,7 @@ resource environment 'Microsoft.App/managedEnvironments@2024-03-01' = {
 
 var certName = !empty(managedCertificateName) ? managedCertificateName : 'cert-${replace(customDomainName, '.', '-')}'
 
-resource managedCertificate 'Microsoft.App/managedEnvironments/managedCertificates@2024-03-01' = if (!empty(customDomainName)) {
+resource managedCertificate 'Microsoft.App/managedEnvironments/managedCertificates@2026-01-01' = if (!empty(customDomainName)) {
   parent: environment
   name: certName
   location: location
@@ -86,7 +86,7 @@ resource managedCertificate 'Microsoft.App/managedEnvironments/managedCertificat
   }
 }
 
-resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
+resource containerApp 'Microsoft.App/containerApps@2026-01-01' = {
   name: containerAppName
   location: location
   identity: {

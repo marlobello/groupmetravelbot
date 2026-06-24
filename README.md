@@ -60,7 +60,7 @@ GroupMe webhook → FastAPI (Azure Container Apps)
   └── Reply via GroupMe Bot API
 ```
 
-**Stack**: Python 3.12 · FastAPI · [Microsoft Agent Framework](https://learn.microsoft.com/en-us/agent-framework/overview/) · Azure OpenAI (GPT-4o) · Azure Blob Storage · Azure Container Apps · Managed Identity
+**Stack**: Python 3.13 · FastAPI · [Microsoft Agent Framework](https://learn.microsoft.com/en-us/agent-framework/overview/) · Microsoft Foundry Agent Service (gpt-4.1) with hosted Web Search · Azure Blob Storage · Azure Container Apps · Managed Identity
 
 **Key design decisions:**
 - **LLM-first** — The agent reads all docs via instructions and uses function tools for writes

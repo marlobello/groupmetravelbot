@@ -10,7 +10,7 @@ class Settings(BaseSettings):
 
     azure_openai_endpoint: str
     azure_openai_deployment: str = "gpt-4.1"
-    azure_openai_api_version: str = "2024-12-01-preview"
+    azure_openai_api_version: str = "2024-10-21"
     foundry_project_endpoint: str = ""
     storage_account_name: str
     storage_container_name: str = "trips"

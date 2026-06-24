@@ -7,7 +7,7 @@ param storageAccountName string
 @description('Principal ID of the managed identity for RBAC.')
 param managedIdentityPrincipalId string
 
-resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
+resource storageAccount 'Microsoft.Storage/storageAccounts@2026-04-01' = {
   name: storageAccountName
   location: location
   kind: 'StorageV2'
@@ -22,7 +22,7 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   }
 }
 
-resource blobServices 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' = {
+resource blobServices 'Microsoft.Storage/storageAccounts/blobServices@2026-04-01' = {
   parent: storageAccount
   name: 'default'
   properties: {
@@ -34,7 +34,7 @@ resource blobServices 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01
   }
 }
 
-resource tripsContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+resource tripsContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2026-04-01' = {
   parent: blobServices
   name: 'trips'
   properties: {
@@ -43,7 +43,7 @@ resource tripsContainer 'Microsoft.Storage/storageAccounts/blobServices/containe
 }
 
 // Lifecycle policy: delete idempotency markers after 1 day
-resource lifecyclePolicy 'Microsoft.Storage/storageAccounts/managementPolicies@2023-05-01' = {
+resource lifecyclePolicy 'Microsoft.Storage/storageAccounts/managementPolicies@2026-04-01' = {
   parent: storageAccount
   name: 'default'
   properties: {

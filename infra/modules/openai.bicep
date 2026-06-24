@@ -7,7 +7,7 @@ param openaiAccountName string
 @description('Principal ID of the managed identity for RBAC.')
 param managedIdentityPrincipalId string
 
-resource openaiAccount 'Microsoft.CognitiveServices/accounts@2024-04-01-preview' = {
+resource openaiAccount 'Microsoft.CognitiveServices/accounts@2025-06-01' = {
   name: openaiAccountName
   location: location
   kind: 'OpenAI'
@@ -20,7 +20,7 @@ resource openaiAccount 'Microsoft.CognitiveServices/accounts@2024-04-01-preview'
   }
 }
 
-resource gpt41Deployment 'Microsoft.CognitiveServices/accounts/deployments@2024-04-01-preview' = {
+resource gpt41Deployment 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = {
   parent: openaiAccount
   name: 'gpt-4.1'
   sku: {

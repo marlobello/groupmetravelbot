@@ -24,7 +24,7 @@ param foundryAccountName string
 @description('Principal ID of the application managed identity to grant access.')
 param managedIdentityPrincipalId string
 
-resource foundryAccount 'Microsoft.CognitiveServices/accounts@2024-10-01' existing = {
+resource foundryAccount 'Microsoft.CognitiveServices/accounts@2025-06-01' existing = {
   name: foundryAccountName
 }
 

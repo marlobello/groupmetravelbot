@@ -4,7 +4,7 @@ param location string
 @description('Name of the user-assigned managed identity.')
 param managedIdentityName string
 
-resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = {
   name: managedIdentityName
   location: location
 }
