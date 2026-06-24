@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "groupme-travel-bot"
 version = "0.1.0"
 description = "A GroupMe chatbot for collaborative travel planning"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.138.0",
     "uvicorn[standard]>=0.49.0",
@@ -40,6 +40,9 @@ where = ["src"]
 
 [tool.ruff]
 line-length = 100
+# Runtime is 3.14, but we target 3.13 for lint/format so Ruff doesn't rewrite
+# code into 3.14-only syntax (e.g. PEP 758 unparenthesized `except`). 3.13-style
+# code runs fine on 3.14 and stays broadly readable.
 target-version = "py313"
 
 [tool.ruff.lint]

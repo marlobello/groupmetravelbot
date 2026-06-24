@@ -1,5 +1,5 @@
 # ---------- builder ----------
-FROM python:3.13-slim AS builder
+FROM python:3.14-slim AS builder
 
 WORKDIR /build
 
@@ -14,11 +14,11 @@ COPY src/ ./src/
 RUN pip install --no-cache-dir --no-deps .
 
 # ---------- runtime ----------
-FROM python:3.13-slim
+FROM python:3.14-slim
 
 WORKDIR /app
 
-COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
+COPY --from=builder /usr/local/lib/python3.14/site-packages /usr/local/lib/python3.14/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 COPY src/ .
